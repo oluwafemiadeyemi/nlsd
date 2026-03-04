@@ -9,7 +9,6 @@ export const metadata: Metadata = { title: "Approvals" };
 export default async function ApprovalsPage() {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const role = await getCurrentUserRole();
   if (role === "employee") redirect("/dashboard");
@@ -84,7 +83,7 @@ export default async function ApprovalsPage() {
     <div className="flex flex-col h-full">
       <TopBar title="Approvals Inbox" />
       <div className="flex-1 overflow-hidden">
-        <ApprovalsInbox items={items} managerId={user.id} userRole={role as "manager" | "finance" | "admin"} />
+        <ApprovalsInbox items={items} managerId={user?.id ?? "guest"} userRole={role as "manager" | "finance" | "admin"} />
       </div>
     </div>
   );

@@ -16,14 +16,15 @@ function currentWeekNumber(): string {
 export default async function ExpensesPage() {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
 
-  const { data: reports }: any = await supabase
-    .from("expense_reports")
-    .select("id, year, week_number, destination, status, submitted_at, approved_at")
-    .eq("employee_id", user.id)
-    .order("year", { ascending: false })
-    .order("week_number", { ascending: false });
+  const { data: reports }: any = user
+    ? await supabase
+        .from("expense_reports")
+        .select("id, year, week_number, destination, status, submitted_at, approved_at")
+        .eq("employee_id", user.id)
+        .order("year", { ascending: false })
+        .order("week_number", { ascending: false })
+    : { data: [] };
 
   const year = new Date().getFullYear();
   const week = currentWeekNumber();

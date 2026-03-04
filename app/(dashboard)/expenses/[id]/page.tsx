@@ -37,7 +37,7 @@ export default async function ExpenseReportPage({
   const sp = await searchParams;
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) return <div className="flex flex-col h-full"><TopBar title="Expense Claim" /><div className="flex-1 flex items-center justify-center text-muted-foreground">Sign in to view expenses</div></div>;
 
   const [{ data: profile }, { data: managerRow }]: any[] = await Promise.all([
     supabase.from("profiles").select("display_name, email").eq("id", user.id).single(),

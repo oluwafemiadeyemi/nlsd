@@ -9,9 +9,10 @@ export const metadata: Metadata = { title: "People" };
 export default async function PeoplePage() {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const { data: profile }: any = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  const { data: profile }: any = user
+    ? await supabase.from("profiles").select("role").eq("id", user.id).single()
+    : { data: null };
   if (profile?.role !== "admin") redirect("/dashboard");
 
   const { data: people }: any = await supabase

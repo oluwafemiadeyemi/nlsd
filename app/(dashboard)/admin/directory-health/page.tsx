@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Directory Health" };
 
 export default async function DirectoryHealthPage() {
   const role = await getCurrentUserRole();
-  if (role !== "admin") redirect("/unauthorized");
+  if (role !== "admin") redirect("/dashboard");
 
   const supabase = await createServerSupabaseClient();
 

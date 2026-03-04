@@ -70,7 +70,7 @@ export function Sidebar({
 
   async function handleSignOut() {
     await supabase.auth.signOut();
-    router.push("/login");
+    router.push("/dashboard");
   }
 
   return (

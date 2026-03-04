@@ -33,7 +33,7 @@ export default async function TimesheetWeekPage({
   const sp = await searchParams;
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) return <div className="flex flex-col h-full"><TopBar title="Timesheet" /><div className="flex-1 flex items-center justify-center text-muted-foreground">Sign in to view timesheets</div></div>;
 
   const [{ data: profile }, { data: hoursConfig }, projectsResult, btResult]: any[] = await Promise.all([
     supabase.from("profiles").select("display_name, email").eq("id", user.id).single(),

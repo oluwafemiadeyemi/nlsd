@@ -99,17 +99,19 @@ const DOW_TO_COL: Record<number, string> = { 1:"mon", 2:"tue", 3:"wed", 4:"thu",
 export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
 
   const now   = new Date();
   const { year, month, week } = currentPeriod();
   const todayDow = now.getDay();
 
-  const role = await getCurrentUserRole();
+  const role = user ? await getCurrentUserRole() : "employee";
   const isApprover = role === "manager" || role === "admin" || role === "finance";
+  const userId = user?.id ?? "guest";
 
   // Always fetch — used in live mode or as fallback
-  const [tsRes, exRes, profRes, hoursRes, mTsRes, mExRes, weekTsRes, pendingTsRes, pendingExRes]: any[] = await Promise.all([
+  const empty = { data: [] };
+  const emptySingle = { data: null };
+  const [tsRes, exRes, profRes, hoursRes, mTsRes, mExRes, weekTsRes, pendingTsRes, pendingExRes]: any[] = user ? await Promise.all([
     supabase.from("timesheets")
       .select("id,year,month,week_number,status,created_at")
       .eq("employee_id", user.id)
@@ -131,27 +133,24 @@ export default async function DashboardPage() {
     supabase.from("expense_reports")
       .select("expense_entries(mileage_cost_claimed,lodging_amount,breakfast_amount,lunch_amount,dinner_amount,other_amount)")
       .eq("employee_id",user.id).eq("year",year),
-    // All weeks in current month — per-day hours for the scrollable progress chart
     supabase.from("timesheets")
       .select("week_number, timesheet_rows(weekly_total, mon, tue, wed, thu, fri, sat)")
       .eq("employee_id",user.id).eq("year",year).eq("month",month),
-    // Pending timesheets awaiting approval (managers/admins/finance only)
     isApprover
       ? supabase.from("timesheets")
           .select("id, year, month, week_number, submitted_at, employee:profiles!employee_id(display_name)")
           .eq("status", "submitted")
           .order("submitted_at")
           .limit(5)
-      : Promise.resolve({ data: [] }),
-    // Pending expenses awaiting approval
+      : Promise.resolve(empty),
     isApprover
       ? supabase.from("expense_reports")
           .select("id, year, week_number, submitted_at, employee:profiles!employee_id(display_name)")
           .eq("status", "submitted")
           .order("submitted_at")
           .limit(5)
-      : Promise.resolve({ data: [] }),
-  ]);
+      : Promise.resolve(empty),
+  ]) : [empty, empty, emptySingle, emptySingle, empty, empty, empty, empty, empty];
 
   // ── Data source selection ──────────────────────────────────────────────────
   const realProfile      = profRes.data;
@@ -291,7 +290,7 @@ export default async function DashboardPage() {
 
               {/* Photo area — 3:4 ratio, interactive upload */}
               <ProfileImageUpload
-                userId={user.id}
+                userId={userId}
                 currentAvatar={avatarUrl}
                 displayName={displayName}
                 initials={initials}

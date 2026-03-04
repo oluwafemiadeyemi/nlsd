@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Admin" };
 
 export default async function AdminPage() {
   const role = await getCurrentUserRole();
-  if (role !== "admin") redirect("/unauthorized");
+  if (role !== "admin") redirect("/dashboard");
 
   const supabase = await createServerSupabaseClient();
 
