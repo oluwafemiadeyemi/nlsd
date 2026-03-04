@@ -208,6 +208,11 @@ GRAPH_SYNC_SECRET
 DEFAULT_MILEAGE_RATE_PER_KM
 ```
 
+Important:
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` must come from the same Supabase project.
+- Do not wrap keys in quotes in Netlify.
+- After changing any `NEXT_PUBLIC_*` value, trigger a fresh redeploy (these are baked at build time).
+
 **Deploy:**
 ```bash
 git push origin main

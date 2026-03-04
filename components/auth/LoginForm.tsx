@@ -9,13 +9,13 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [devEmail, setDevEmail] = useState("");
   const [devPassword, setDevPassword] = useState("");
-  const supabase = createClient();
 
   async function handleDevLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
+      const supabase = createClient();
       const { error } = await supabase.auth.signInWithPassword({
         email: devEmail,
         password: devPassword,
@@ -32,6 +32,7 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
     try {
+      const supabase = createClient();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {

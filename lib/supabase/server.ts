@@ -1,13 +1,16 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database, AppRole } from "./database.types";
+import { getSupabasePublicEnv } from "./env";
+import { getSupabaseServiceEnv } from "./env.server";
 
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
+  const { url, anonKey } = getSupabasePublicEnv();
 
   return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    anonKey,
     {
       cookies: {
         getAll() {
@@ -29,9 +32,10 @@ export async function createServerSupabaseClient() {
 
 /** Service-role client for Netlify functions and server-only ops */
 export function createServiceClient() {
+  const { url, serviceRoleKey } = getSupabaseServiceEnv();
   return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    url,
+    serviceRoleKey,
     {
       cookies: { getAll: () => [], setAll: () => {} },
       auth: { persistSession: false },
