@@ -181,9 +181,9 @@ export default async function DashboardPage() {
   const catOther   = expEntries.reduce((s:number, e:any) => s + (e.other_amount ?? 0), 0);
   const realMonthlyEx = catMileage + catLodging + catMeals + catOther;
 
-  const displayName   = isDemoMode ? DEMO.fullName  : (realProfile?.display_name ?? user.email ?? "");
+  const displayName   = isDemoMode ? DEMO.fullName  : (realProfile?.display_name ?? user?.email ?? "Guest");
   const firstName     = isDemoMode ? DEMO.name      : (displayName.split(" ")[0] ?? "there");
-  const displayEmail  = isDemoMode ? DEMO.email     : (realProfile?.email ?? user.email ?? "");
+  const displayEmail  = isDemoMode ? DEMO.email     : (realProfile?.email ?? user?.email ?? "");
   // Real uploaded avatar always wins; fall back to demo placeholder only when none exists
   const avatarUrl     = realProfile?.avatar_url ?? (isDemoMode ? DEMO.avatarUrl : undefined);
   const jobTitle      = isDemoMode ? DEMO.jobTitle  : (realProfile?.job_title ?? "Team Member");
