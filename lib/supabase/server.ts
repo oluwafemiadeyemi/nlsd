@@ -1,16 +1,17 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database, AppRole } from "./database.types";
-import { getSupabasePublicEnv } from "./env";
-import { getSupabaseServiceEnv } from "./env.server";
 
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
-  const { url, anonKey } = getSupabasePublicEnv();
+
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    throw new Error("Supabase URL or Anon Key is missing. Please check your .env.local file.");
+  }
 
   return createServerClient<Database>(
-    url,
-    anonKey,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {
@@ -32,10 +33,13 @@ export async function createServerSupabaseClient() {
 
 /** Service-role client for Netlify functions and server-only ops */
 export function createServiceClient() {
-  const { url, serviceRoleKey } = getSupabaseServiceEnv();
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Supabase URL or Service Role Key is missing.");
+  }
+
   return createServerClient<Database>(
-    url,
-    serviceRoleKey,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
     {
       cookies: { getAll: () => [], setAll: () => {} },
       auth: { persistSession: false },
