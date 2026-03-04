@@ -46,7 +46,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       <TopNav
-        role={role}
+        role={role as any}
         pendingApprovals={pendingApprovals}
         userName={profile?.display_name ?? user?.email ?? "Guest"}
         userEmail={profile?.email ?? user?.email ?? ""}
