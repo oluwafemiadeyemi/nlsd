@@ -12,7 +12,10 @@ export async function GET(request: NextRequest) {
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`);
     }
+    console.error("[auth/callback] Code exchange failed:", error.message);
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(error.message)}`);
   }
 
+  console.error("[auth/callback] No code in callback URL");
   return NextResponse.redirect(`${origin}/login?error=auth_callback_failed`);
 }

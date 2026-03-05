@@ -6,6 +6,11 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Expenses" };
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
 function currentWeekNumber(): string {
   const now = new Date();
   const start = new Date(now.getFullYear(), 0, 1);
@@ -13,21 +18,43 @@ function currentWeekNumber(): string {
   return String(Math.ceil(dayOfYear / 7)).padStart(2, "0");
 }
 
-export default async function ExpensesPage() {
+export default async function ExpensesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string; year?: string }>;
+}) {
+  const sp = await searchParams;
+  const now = new Date();
+  const filterYear = sp.year ? parseInt(sp.year) : now.getFullYear();
+  const filterMonth = sp.month ? parseInt(sp.month) : now.getMonth() + 1; // 1-indexed
+
+  // Date range for the selected month
+  const monthStart = `${filterYear}-${String(filterMonth).padStart(2, "0")}-01`;
+  const lastDay = new Date(filterYear, filterMonth, 0).getDate();
+  const monthEnd = `${filterYear}-${String(filterMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
-
   if (!user) return null;
 
+  // Fetch reports whose week_beginning_date falls within the selected month
   const { data: reports }: any = await supabase
     .from("expense_reports")
-    .select("id, year, week_number, destination, status, submitted_at, approved_at")
+    .select("id, year, week_number, week_beginning_date, destination, status, submitted_at, approved_at")
     .eq("employee_id", user.id)
-    .order("year", { ascending: false })
+    .gte("week_beginning_date", monthStart)
+    .lte("week_beginning_date", monthEnd)
     .order("week_number", { ascending: false });
 
-  const year = new Date().getFullYear();
+  const year = now.getFullYear();
   const week = currentWeekNumber();
+
+  // Navigation months
+  const prevMonth = filterMonth === 1 ? 12 : filterMonth - 1;
+  const prevYear = filterMonth === 1 ? filterYear - 1 : filterYear;
+  const nextMonth = filterMonth === 12 ? 1 : filterMonth + 1;
+  const nextYear = filterMonth === 12 ? filterYear + 1 : filterYear;
+  const isCurrentMonth = filterYear === now.getFullYear() && filterMonth === now.getMonth() + 1;
 
   return (
     <div className="flex flex-col h-full">
@@ -45,14 +72,51 @@ export default async function ExpensesPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto">
+          {/* Month navigator */}
+          <div className="flex items-center justify-between mb-6">
+            <Link
+              href={`/expenses?month=${prevMonth}&year=${prevYear}`}
+              className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </Link>
+
+            <div className="text-center">
+              <h2 className="text-lg font-semibold text-foreground">
+                {MONTH_NAMES[filterMonth - 1]} {filterYear}
+              </h2>
+              {!isCurrentMonth && (
+                <Link
+                  href="/expenses"
+                  className="text-xs text-primary hover:underline"
+                >
+                  Back to current month
+                </Link>
+              )}
+            </div>
+
+            <Link
+              href={`/expenses?month=${nextMonth}&year=${nextYear}`}
+              className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </Link>
+          </div>
+
           {!reports?.length ? (
             <div className="text-center py-16">
-              <p className="text-muted-foreground mb-4">No expense claims yet.</p>
+              <p className="text-muted-foreground mb-4">
+                No expense claims for {MONTH_NAMES[filterMonth - 1]} {filterYear}.
+              </p>
               <Link
                 href={`/expenses/new?year=${year}&week=${week}`}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90"
               >
-                Create your first claim
+                Create a new claim
               </Link>
             </div>
           ) : (

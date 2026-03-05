@@ -81,8 +81,55 @@ export default async function handler(_req: Request, _context: Context) {
         ? graphIdToSupabaseId.get(graphUser.manager.id) ?? null
         : null;
 
-      if (existingId) {
-        // Update profile metadata (profiles has no work_status column)
+      let profileId = existingId;
+
+      if (!profileId) {
+        // Pre-provision: create auth user via Admin API
+        if (!graphUser.mail) {
+          console.warn("[graph-sync] Skipping user without email:", graphUser.displayName);
+          continue;
+        }
+
+        const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
+          email: graphUser.mail,
+          email_confirm: true,
+          user_metadata: {
+            full_name: graphUser.displayName,
+            azure_user_id: graphUser.id,
+          },
+        });
+
+        if (createErr) {
+          // User may already exist in auth but not matched in profiles
+          const { data: { users: authUsers } } = await supabase.auth.admin.listUsers();
+          const match = (authUsers ?? []).find(
+            (u) => u.email?.toLowerCase() === graphUser.mail.toLowerCase()
+          );
+          if (match) {
+            profileId = match.id;
+          } else {
+            results.errors++;
+            console.error("[graph-sync] Failed to create user:", graphUser.mail, createErr.message);
+            continue;
+          }
+        } else {
+          profileId = newUser.user.id;
+        }
+
+        // Ensure profile row exists (handle_new_user trigger may have a delay)
+        await supabase.from("profiles").upsert({
+          id: profileId,
+          email: graphUser.mail,
+          display_name: graphUser.displayName,
+          azure_user_id: graphUser.id,
+          job_title: graphUser.jobTitle ?? null,
+          department: graphUser.department ?? null,
+        } as any, { onConflict: "id" });
+
+        graphIdToSupabaseId.set(graphUser.id, profileId);
+        results.created++;
+      } else {
+        // Update existing profile metadata
         const { error } = await supabase
           .from("profiles")
           .update({
@@ -92,38 +139,34 @@ export default async function handler(_req: Request, _context: Context) {
             job_title: graphUser.jobTitle ?? null,
             department: graphUser.department ?? null,
           })
-          .eq("id", existingId);
+          .eq("id", profileId);
 
         if (error) {
           results.errors++;
           console.error("[graph-sync] profile update error:", error);
           continue;
         }
-
-        // Sync roles: wipe existing, insert fresh from group membership
-        await supabase.from("user_roles").delete().eq("user_id", existingId);
-        const rolesToInsert: Array<{ user_id: string; role: string }> = [];
-        if (adminSet.has(graphUser.id)) rolesToInsert.push({ user_id: existingId, role: "admin" });
-        if (managerSet.has(graphUser.id)) rolesToInsert.push({ user_id: existingId, role: "manager" });
-        if (financeSet.has(graphUser.id)) rolesToInsert.push({ user_id: existingId, role: "finance" });
-        if (rolesToInsert.length === 0) rolesToInsert.push({ user_id: existingId, role: "employee" });
-        await supabase.from("user_roles").insert(rolesToInsert as any);
-
-        // Sync manager relationship
-        if (managerId) {
-          await supabase
-            .from("employee_manager")
-            .upsert({ employee_id: existingId, manager_id: managerId }, {
-              onConflict: "employee_id",
-            });
-        } else {
-          await supabase.from("employee_manager").delete().eq("employee_id", existingId);
-        }
-
         results.updated++;
+      }
+
+      // Sync roles: wipe existing, insert fresh from group membership
+      await supabase.from("user_roles").delete().eq("user_id", profileId);
+      const rolesToInsert: Array<{ user_id: string; role: string }> = [];
+      if (adminSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "admin" });
+      if (managerSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "manager" });
+      if (financeSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "finance" });
+      if (rolesToInsert.length === 0) rolesToInsert.push({ user_id: profileId, role: "employee" });
+      await supabase.from("user_roles").insert(rolesToInsert as any);
+
+      // Sync manager relationship
+      if (managerId) {
+        await supabase
+          .from("employee_manager")
+          .upsert({ employee_id: profileId, manager_id: managerId }, {
+            onConflict: "employee_id",
+          });
       } else {
-        // User not yet in Supabase — must SSO-login first to trigger handle_new_user.
-        results.created++;
+        await supabase.from("employee_manager").delete().eq("employee_id", profileId);
       }
     } catch (err) {
       results.errors++;

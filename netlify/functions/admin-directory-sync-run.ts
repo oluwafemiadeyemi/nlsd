@@ -23,9 +23,9 @@ export const config: Config = {
   path: "/api/admin/directory-sync-run",
 };
 
-const ADMIN_GROUP_ID = process.env.AAD_GROUP_ADMIN_ID!;
-const FINANCE_GROUP_ID = process.env.AAD_GROUP_FINANCE_ID!;
-const MANAGER_GROUP_ID = process.env.AAD_GROUP_MANAGER_ID!;
+const ADMIN_GROUP_ID = process.env.AZURE_GROUP_ADMINS!;
+const FINANCE_GROUP_ID = process.env.AZURE_GROUP_FINANCE ?? "";
+const MANAGER_GROUP_ID = process.env.AZURE_GROUP_MANAGERS!;
 const MANAGER_LOOKUP_CONCURRENCY = Number(process.env.GRAPH_MANAGER_LOOKUP_CONCURRENCY ?? "10");
 
 type GraphUser = {

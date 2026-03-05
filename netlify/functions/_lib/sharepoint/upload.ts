@@ -14,9 +14,8 @@ export async function uploadCsvToSharePoint(args: {
 }): Promise<{ id: string }> {
   const token = await getGraphAccessToken();
 
-  const url = `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/root:/${encodeURIComponent(
-    args.path
-  )}:/content`;
+  const encodedPath = args.path.split("/").map(encodeURIComponent).join("/");
+  const url = `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/root:/${encodedPath}:/content`;
 
   const res = await fetch(url, {
     method: "PUT",

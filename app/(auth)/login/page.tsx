@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+
+import { motion } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { Loader2, Eye, EyeOff, Mail, Lock, ArrowRight, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+
 
 type AuthMode = "signin" | "signup" | "forgot";
 
@@ -26,6 +29,84 @@ function getPasswordStrength(password: string) {
   return { score, ...levels[score] };
 }
 
+// Head positions (% of visible container) — adjusted for object-cover crop
+// The landscape image is horizontally cropped in the portrait container,
+// so only the 3 central people are reliably visible on most viewports.
+const HEAD_POSITIONS = [
+  { x: 16, y: 20 },  // standing woman (curly hair) — center of hair
+  { x: 47, y: 24 },  // center man (cream jacket)
+  { x: 79, y: 24 },  // right man (green jacket) — center of head
+];
+
+function PartyHat() {
+  return (
+    <svg width="40" height="48" viewBox="0 0 40 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Hat cone */}
+      <path d="M20 2L6 40H34L20 2Z" fill="url(#hatGradient)" stroke="#1E40AF" strokeWidth="1.5" />
+      {/* Stripes */}
+      <path d="M14 25L20 8L26 25" stroke="rgba(255,255,255,0.4)" strokeWidth="2" />
+      <path d="M10 33L20 12L30 33" stroke="rgba(255,255,255,0.25)" strokeWidth="1.5" />
+      {/* Brim */}
+      <ellipse cx="20" cy="40" rx="16" ry="4" fill="#1E3A8A" />
+      {/* Pom-pom */}
+      <circle cx="20" cy="3" r="3.5" fill="#FACC15" />
+      <circle cx="20" cy="3" r="2" fill="#FDE68A" />
+      {/* Sparkles around pom-pom */}
+      <line x1="20" y1="-4" x2="20" y2="-7" stroke="#FACC15" strokeWidth="1.2" strokeLinecap="round">
+        <animate attributeName="opacity" values="1;0.2;1" dur="0.8s" repeatCount="indefinite" />
+      </line>
+      <line x1="26" y1="-1" x2="28.5" y2="-3" stroke="#FDE68A" strokeWidth="1.2" strokeLinecap="round">
+        <animate attributeName="opacity" values="0.2;1;0.2" dur="0.8s" repeatCount="indefinite" />
+      </line>
+      <line x1="14" y1="-1" x2="11.5" y2="-3" stroke="#FDE68A" strokeWidth="1.2" strokeLinecap="round">
+        <animate attributeName="opacity" values="0.6;1;0.6" dur="0.8s" repeatCount="indefinite" />
+      </line>
+      <line x1="24" y1="5" x2="27" y2="6" stroke="#FACC15" strokeWidth="1" strokeLinecap="round">
+        <animate attributeName="opacity" values="1;0.3;1" dur="1s" repeatCount="indefinite" />
+      </line>
+      <line x1="16" y1="5" x2="13" y2="6" stroke="#FACC15" strokeWidth="1" strokeLinecap="round">
+        <animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite" />
+      </line>
+      <circle cx="25" cy="-3" r="0.8" fill="#FACC15">
+        <animate attributeName="opacity" values="0;1;0" dur="1.2s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="14" cy="-4" r="0.8" fill="#FDE68A">
+        <animate attributeName="opacity" values="1;0;1" dur="1.2s" repeatCount="indefinite" />
+      </circle>
+      {/* Sparkles on hat body */}
+      <circle cx="18" cy="15" r="0.9" fill="#FFFFFF">
+        <animate attributeName="opacity" values="0;1;0" dur="1.4s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="23" cy="22" r="0.7" fill="#FFFFFF">
+        <animate attributeName="opacity" values="1;0;1" dur="1.1s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="15" cy="28" r="0.8" fill="#BFDBFE">
+        <animate attributeName="opacity" values="0.3;1;0.3" dur="0.9s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="25" cy="33" r="0.7" fill="#FFFFFF">
+        <animate attributeName="opacity" values="0;0.8;0" dur="1.3s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="12" cy="35" r="0.6" fill="#BFDBFE">
+        <animate attributeName="opacity" values="1;0.2;1" dur="1s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="28" cy="26" r="0.6" fill="#FFFFFF">
+        <animate attributeName="opacity" values="0.5;1;0.5" dur="1.5s" repeatCount="indefinite" />
+      </circle>
+      {/* Dots */}
+      <circle cx="16" cy="20" r="1.5" fill="#FACC15" />
+      <circle cx="24" cy="28" r="1.5" fill="#38BDF8" />
+      <circle cx="13" cy="32" r="1.2" fill="#FB923C" />
+      <circle cx="27" cy="18" r="1.2" fill="#4ADE80" />
+      <defs>
+        <linearGradient id="hatGradient" x1="20" y1="2" x2="20" y2="40" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#3B82F6" />
+          <stop offset="1" stopColor="#1E3A8A" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 export default function LoginPage() {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [email, setEmail] = useState("");
@@ -40,6 +121,14 @@ export default function LoginPage() {
   const [emailTouched, setEmailTouched] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [confirmTouched, setConfirmTouched] = useState(false);
+  const [hatIndex, setHatIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setHatIndex((prev) => (prev + 1) % HEAD_POSITIONS.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, []);
 
   function getFieldError(field: "email" | "password" | "confirm"): string | null {
     if (field === "email") {
@@ -122,7 +211,8 @@ export default function LoginPage() {
   const strength = getPasswordStrength(password);
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex relative">
+
       {/* Left — Auth form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-10 relative" style={{ background: "linear-gradient(135deg, hsl(221 83% 48%) 0%, hsl(221 83% 28%) 100%)" }}>
         {/* Dotted mesh grid overlay */}
@@ -427,13 +517,44 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right — Full-size image (hidden on mobile) */}
-      <div className="hidden lg:block lg:w-1/2">
+      {/* Right — Full-size image with party hat (hidden on mobile) */}
+      <div className="hidden lg:block lg:w-1/2 relative">
         <img
           src="/auth-image.jpg"
           alt=""
           className="h-full w-full object-cover"
         />
+        {/* Animated party hat overlay */}
+        <motion.div
+          className="absolute pointer-events-none"
+          animate={{
+            left: `${HEAD_POSITIONS[hatIndex % HEAD_POSITIONS.length].x}%`,
+            top: `${HEAD_POSITIONS[hatIndex % HEAD_POSITIONS.length].y}%`,
+          }}
+          transition={{
+            type: "spring",
+            stiffness: 120,
+            damping: 14,
+            mass: 0.8,
+          }}
+          style={{
+            transform: "translate(-50%, -85%)",
+            filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.3))",
+          }}
+        >
+          <motion.div
+            key={hatIndex}
+            initial={{ scale: 0.3, rotate: -20, opacity: 0 }}
+            animate={{ scale: 1, rotate: 0, opacity: 1 }}
+            transition={{
+              type: "spring",
+              stiffness: 200,
+              damping: 12,
+            }}
+          >
+            <PartyHat />
+          </motion.div>
+        </motion.div>
       </div>
     </div>
   );

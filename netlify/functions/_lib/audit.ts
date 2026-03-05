@@ -20,7 +20,7 @@ export async function writeAudit(args: {
   afterJson?: unknown;
 }): Promise<void> {
   const db = supabaseAdmin();
-  await db.from("audit_log").insert({
+  const { error } = await db.from("audit_log").insert({
     actor_user_id: args.actorUserId,
     entity_type: args.entityType as any,
     entity_id: args.entityId,
@@ -29,4 +29,5 @@ export async function writeAudit(args: {
     before_json: args.beforeJson ?? null,
     after_json: args.afterJson ?? null,
   });
+  if (error) console.error("[audit] Failed to write audit log:", error.message);
 }

@@ -1,15 +1,10 @@
 import type { Config, Context } from "@netlify/functions";
-import { z } from "zod";
 import { json, getBearerToken, requireMethod } from "./_lib/http";
 import { supabaseAdmin, supabaseUser, getUserIdFromJwt } from "./_lib/supabase";
 import { writeAudit } from "./_lib/audit";
 import { assertCanSubmit } from "./_lib/workflow";
 
 export const config: Config = { path: "/api/timesheets/:id/submit" };
-
-const BodySchema = z.object({
-  timesheetId: z.string().uuid(),
-});
 
 export default async function handler(req: Request, context: Context): Promise<Response> {
   const methodError = requireMethod(req, "POST");
