@@ -83,9 +83,7 @@ export function Sidebar({
       {/* Logo */}
       <div className="flex items-center h-16 px-4 border-b border-sidebar-border shrink-0">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <Grid3X3 className="w-4 h-4 text-white" />
-          </div>
+          <img src="/company-logo.jpg" alt="NLSD" className="flex-shrink-0 w-8 h-8 rounded-lg object-cover" />
           {!collapsed && (
             <span className="font-semibold text-white text-lg tracking-tight">NLSD</span>
           )}

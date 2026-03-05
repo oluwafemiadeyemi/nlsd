@@ -154,7 +154,7 @@ export function TopNav({
     <header className="h-20 bg-white flex items-center px-5 gap-3 shrink-0 sticky top-0 z-30 relative">
       {/* Logo */}
       <div className="flex items-center shrink-0">
-        <img src="/logo.jpeg" alt="Logo" style={{ height: "72px" }} className="w-auto object-contain" />
+        <img src="/company-logo.jpg" alt="NLSD" style={{ height: "72px" }} className="w-auto object-contain" />
       </div>
 
       {/* Nav pills */}
