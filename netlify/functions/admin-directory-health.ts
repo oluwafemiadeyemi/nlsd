@@ -7,13 +7,9 @@
  * Returns directory health metrics and issue lists for the admin dashboard.
  */
 
-import type { Config, Context } from "@netlify/functions";
+import type { Context } from "@netlify/functions";
 import { json, getBearerToken } from "./_lib/http";
 import { supabaseUser } from "./_lib/supabase";
-
-export const config: Config = {
-  path: "/api/admin/directory-health",
-};
 
 export default async function handler(req: Request, _context: Context) {
   try {

@@ -96,7 +96,7 @@ export function DirectoryHealthPanel({
     setRerouting(override ? "override" : "missing");
     try {
       const token = await getToken();
-      const res = await fetch(`/api/admin/reroute-submitted-approvals?override=${override}`, {
+      const res = await fetch(`/.netlify/functions/admin-reroute-submitted-approvals?override=${override}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
