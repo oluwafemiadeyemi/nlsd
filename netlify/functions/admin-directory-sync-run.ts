@@ -7,7 +7,7 @@
  * Manually triggers a directory sync from Microsoft Entra ID:
  * - Upserts profiles (display_name, job_title, department, etc.)
  * - Upserts employee_manager relationships (concurrency-limited)
- * - Derives roles from Entra attributes (department + direct reports)
+ * - Grants roles based on Entra group membership
  * - Removes roles no longer present (strict sync)
  * - Logs the run to directory_sync_runs
  */
@@ -21,10 +21,10 @@ import { mapWithConcurrency } from "./_lib/graph/concurrency";
 
 export const config: Config = { path: "/api/admin/directory-sync-run" };
 
-// Department names (case-insensitive) that map to admin role
-const ADMIN_DEPTS = new Set(["it", "technology", "information technology", "it department", "systems", "ict"]);
-// Department names (case-insensitive) that map to finance role
-const FINANCE_DEPTS = new Set(["finance", "accounting", "accounts", "financial services", "payroll"]);
+
+const ADMIN_GROUP_ID = process.env.AZURE_GROUP_ADMINS!;
+const FINANCE_GROUP_ID = process.env.AZURE_GROUP_FINANCE ?? "";
+const MANAGER_GROUP_ID = process.env.AZURE_GROUP_MANAGERS!;
 const MANAGER_LOOKUP_CONCURRENCY = Number(process.env.GRAPH_MANAGER_LOOKUP_CONCURRENCY ?? "10");
 
 type GraphUser = {
@@ -45,6 +45,12 @@ async function fetchAllUsers(): Promise<GraphUser[]> {
   ].join(",");
   const url = `https://graph.microsoft.com/v1.0/users?$select=${encodeURIComponent(select)}&$top=999`;
   return graphGetAllPages<{ value: GraphUser[]; "@odata.nextLink"?: string }>(url) as Promise<GraphUser[]>;
+}
+
+async function fetchGroupMemberIds(groupId: string): Promise<Set<string>> {
+  const url = `https://graph.microsoft.com/v1.0/groups/${groupId}/members?$select=id&$top=999`;
+  const members = await graphGetAllPages<{ value: Array<{ id: string }>; "@odata.nextLink"?: string }>(url);
+  return new Set((members as Array<{ id: string }>).map((m) => m.id));
 }
 
 async function fetchManagerIdForUser(userId: string): Promise<string | null> {
@@ -95,10 +101,17 @@ export default async function handler(req: Request, _context: Context) {
     if (runErr || !run) throw new Error(runErr?.message ?? "Failed to create run record");
     runId = run.id;
 
-    // 1) Fetch all users from Graph
+    // 1) Fetch role groups in parallel
+    const [adminMembers, financeMembers, managerMembers] = await Promise.all([
+      fetchGroupMemberIds(ADMIN_GROUP_ID),
+      fetchGroupMemberIds(FINANCE_GROUP_ID),
+      fetchGroupMemberIds(MANAGER_GROUP_ID),
+    ]);
+
+    // 2) Fetch all users from Graph
     const users = await fetchAllUsers();
 
-    // 2) Concurrency-limited manager lookup
+    // 3) Concurrency-limited manager lookup
     const managerPairs = await mapWithConcurrency(
       users,
       MANAGER_LOOKUP_CONCURRENCY,
@@ -106,12 +119,6 @@ export default async function handler(req: Request, _context: Context) {
     );
     const managerMap = new Map<string, string | null>();
     for (const p of managerPairs) managerMap.set(p.userAzureId, p.managerAzureId);
-
-    // 3) Build set of users who have direct reports (for manager role)
-    const usersWithDirectReports = new Set<string>();
-    for (const p of managerPairs) {
-      if (p.managerAzureId) usersWithDirectReports.add(p.managerAzureId);
-    }
 
     // 4) Map Graph users to existing profiles by email (chunked for large orgs)
     const emails = users
@@ -215,18 +222,13 @@ export default async function handler(req: Request, _context: Context) {
       if (error) throw new Error(error.message);
     }
 
-    // 7) Build desired roles from Entra attributes (department + direct reports)
-    const userByAzureId = new Map<string, GraphUser>();
-    for (const u of users) userByAzureId.set(u.id, u);
-
+    // 7) Build desired roles from group membership
     const desiredRoles = new Map<string, Set<"admin" | "finance" | "manager">>();
     for (const [azureId, p] of profileByAzureId.entries()) {
-      const u = userByAzureId.get(azureId);
-      const dept = (u?.department ?? "").toLowerCase().trim();
       const s = new Set<"admin" | "finance" | "manager">();
-      if (ADMIN_DEPTS.has(dept)) s.add("admin");
-      if (FINANCE_DEPTS.has(dept)) s.add("finance");
-      if (usersWithDirectReports.has(azureId)) s.add("manager");
+      if (adminMembers.has(azureId)) s.add("admin");
+      if (financeMembers.has(azureId)) s.add("finance");
+      if (managerMembers.has(azureId)) s.add("manager");
       if (s.size) desiredRoles.set(p.id, s);
     }
 

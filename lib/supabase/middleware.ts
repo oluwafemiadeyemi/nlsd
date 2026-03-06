@@ -26,20 +26,6 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // If a Supabase PKCE auth code lands on any non-auth page, exchange it here
-  const code = request.nextUrl.searchParams.get("code");
-  if (code && !request.nextUrl.pathname.startsWith("/auth")) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    // Strip the code from the URL and redirect
-    const url = request.nextUrl.clone();
-    url.searchParams.delete("code");
-    url.pathname = error ? "/login" : "/dashboard";
-    // Copy session cookies from supabaseResponse to the redirect
-    const redirect = NextResponse.redirect(url);
-    supabaseResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
-    return redirect;
-  }
-
   // Refresh session if expired
   const { data: { user } } = await supabase.auth.getUser();
 
