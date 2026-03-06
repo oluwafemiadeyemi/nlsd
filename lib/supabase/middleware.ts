@@ -26,6 +26,14 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // If a Supabase auth code lands on any page, redirect to /auth/callback
+  const code = request.nextUrl.searchParams.get("code");
+  if (code && !request.nextUrl.pathname.startsWith("/auth/callback")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/auth/callback";
+    return NextResponse.redirect(url);
+  }
+
   // Refresh session if expired
   const { data: { user } } = await supabase.auth.getUser();
 
