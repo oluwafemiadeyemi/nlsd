@@ -1,18 +1,28 @@
 /**
  * Netlify Scheduled Function: graph-sync
  *
- * Runs daily (cron: "0 2 * * *") to sync Entra ID users and group memberships
- * into the Supabase profiles, user_roles, and employee_manager tables.
+ * Runs daily (cron: "0 2 * * *") to sync Entra ID users into the Supabase
+ * profiles, user_roles, and employee_manager tables.
+ *
+ * Roles are derived from Entra attributes (no group membership required):
+ *   - admin:   department matches ADMIN_DEPTS (IT, Technology, etc.)
+ *   - finance: department matches FINANCE_DEPTS (Finance, Accounting, etc.)
+ *   - manager: user has direct reports in Entra hierarchy
+ *   - employee: everyone else
  *
  * Requires app permissions in Entra:
  *   - User.Read.All
- *   - Group.Read.All
  *   - Directory.Read.All
  */
 
 import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { createGraphClient, fetchAllUsers, fetchGroupMembers, fetchUserPhoto } from "../../lib/msGraph/client";
+import { createGraphClient, fetchAllUsers, fetchUserPhoto } from "../../lib/msGraph/client";
+
+// Department names (case-insensitive) that map to admin role
+const ADMIN_DEPTS = new Set(["it", "technology", "information technology", "it department", "systems", "ict"]);
+// Department names (case-insensitive) that map to finance role
+const FINANCE_DEPTS = new Set(["finance", "accounting", "accounts", "financial services", "payroll"]);
 
 
 export const config: Config = {
@@ -31,19 +41,14 @@ export default async function handler(_req: Request, _context: Context) {
 
   const graph = createGraphClient();
 
-  // ── Fetch role group memberships ────────────────────────────────────────────
-  const [adminIds, managerIds, financeIds] = await Promise.all([
-    fetchGroupMembers(graph, process.env.AZURE_GROUP_ADMINS!).catch(() => []),
-    fetchGroupMembers(graph, process.env.AZURE_GROUP_MANAGERS!).catch(() => []),
-    fetchGroupMembers(graph, process.env.AZURE_GROUP_FINANCE ?? "").catch(() => []),
-  ]);
-
-  const adminSet = new Set(adminIds);
-  const managerSet = new Set(managerIds);
-  const financeSet = new Set(financeIds);
-
   // ── Fetch all users from Graph ───────────────────────────────────────────────
   const graphUsers = await fetchAllUsers(graph);
+
+  // ── Build set of users who have direct reports (for manager role) ───────────
+  const managerSet = new Set<string>();
+  for (const u of graphUsers) {
+    if (u.manager?.id) managerSet.add(u.manager.id);
+  }
   console.log(`[graph-sync] Fetched ${graphUsers.length} users from Entra ID`);
 
   // ── Get existing profiles indexed by azure_user_id and email ─────────────────
@@ -149,12 +154,13 @@ export default async function handler(_req: Request, _context: Context) {
         results.updated++;
       }
 
-      // Sync roles: wipe existing, insert fresh from group membership
+      // Sync roles: wipe existing, insert fresh from Entra attributes
       await supabase.from("user_roles").delete().eq("user_id", profileId);
       const rolesToInsert: Array<{ user_id: string; role: string }> = [];
-      if (adminSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "admin" });
+      const dept = (graphUser.department ?? "").toLowerCase().trim();
+      if (ADMIN_DEPTS.has(dept)) rolesToInsert.push({ user_id: profileId, role: "admin" });
+      if (FINANCE_DEPTS.has(dept)) rolesToInsert.push({ user_id: profileId, role: "finance" });
       if (managerSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "manager" });
-      if (financeSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "finance" });
       if (rolesToInsert.length === 0) rolesToInsert.push({ user_id: profileId, role: "employee" });
       await supabase.from("user_roles").insert(rolesToInsert as any);
 

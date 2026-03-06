@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle, XCircle, Clock, Receipt, ExternalLink, ChevronRight, AlertCircle } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Receipt, CalendarX2, ExternalLink, ChevronRight, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { format } from "date-fns";
@@ -11,7 +11,7 @@ import { toast } from "@/hooks/use-toast";
 
 interface ApprovalItem {
   id: string;
-  type: "timesheet" | "expense";
+  type: "timesheet" | "expense" | "leave";
   period: string;
   status: string;
   amountLabel: string;
@@ -78,8 +78,8 @@ export function ApprovalsInbox({ items: initialItems, managerId, userRole }: App
         const item = items.find((i) => i.id === id);
         if (!item) continue;
 
-        const table = item.type === "timesheet" ? "timesheets" : "expense_reports";
-        const entityType = item.type === "timesheet" ? "timesheet" : "expense_report";
+        const table = item.type === "timesheet" ? "timesheets" : item.type === "leave" ? "leave_requests" : "expense_reports";
+        const entityType = item.type === "timesheet" ? "timesheet" : item.type === "leave" ? "leave_request" : "expense_report";
 
         await (supabase.from as any)(table)
           .update({ status: approveStatus, approved_at: new Date().toISOString() })
@@ -105,8 +105,8 @@ export function ApprovalsInbox({ items: initialItems, managerId, userRole }: App
       for (const id of ids) {
         const item = items.find((i) => i.id === id);
         if (!item) continue;
-        const table = item.type === "timesheet" ? "timesheets" : "expense_reports";
-        const entityType = item.type === "timesheet" ? "timesheet" : "expense_report";
+        const table = item.type === "timesheet" ? "timesheets" : item.type === "leave" ? "leave_requests" : "expense_reports";
+        const entityType = item.type === "timesheet" ? "timesheet" : item.type === "leave" ? "leave_request" : "expense_report";
 
         await (supabase.from as any)(table)
           .update({ status: rejectStatus, rejected_at: new Date().toISOString(), manager_comments: reason })
@@ -204,6 +204,8 @@ export function ApprovalsInbox({ items: initialItems, managerId, userRole }: App
                   <div className="flex items-center gap-1.5 mb-0.5">
                     {item.type === "timesheet" ? (
                       <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    ) : item.type === "leave" ? (
+                      <CalendarX2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                     ) : (
                       <Receipt className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     )}
@@ -231,6 +233,8 @@ export function ApprovalsInbox({ items: initialItems, managerId, userRole }: App
                 <div className="flex items-center gap-2 mb-1">
                   {activeItem.type === "timesheet" ? (
                     <Clock className="w-4 h-4 text-blue-500" />
+                  ) : activeItem.type === "leave" ? (
+                    <CalendarX2 className="w-4 h-4 text-amber-500" />
                   ) : (
                     <Receipt className="w-4 h-4 text-emerald-500" />
                   )}

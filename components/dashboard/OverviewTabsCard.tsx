@@ -81,7 +81,9 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     if (now.getFullYear() === year && now.getMonth() + 1 === month) return now.getDate();
     return null;
   });
-  const [dayEntries, setDayEntries] = useState<Record<number, { billingType: string; project: string; hours: string; manager: string; mileage: string; meals: string; lodging: string; other: string }>>({});
+  type DayEntry = { billingType: string; project: string; hours: string; manager: string; mileage: string; meals: string; lodging: string; other: string };
+  const [dayEntries, setDayEntries] = useState<Record<number, DayEntry[]>>({});
+  const [selectedEntryIdx, setSelectedEntryIdx] = useState(0);
   const [editingBilling, setEditingBilling] = useState(false);
   const [editingLocation, setEditingLocation] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -106,7 +108,15 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     const key = `${selectedYear}-${selectedMonth}`;
     try {
       const saved = localStorage.getItem(`dayEntries-${key}`);
-      if (saved) setDayEntries(JSON.parse(saved));
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Migrate old format (single entry per day) to new format (array per day)
+        const migrated: Record<number, DayEntry[]> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          migrated[Number(k)] = Array.isArray(v) ? v as DayEntry[] : [v as DayEntry];
+        }
+        setDayEntries(migrated);
+      }
     } catch {}
     try {
       const saved = localStorage.getItem(`monthNotes-${key}`);
@@ -137,11 +147,16 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     }
     const newKey = `${newYear}-${newMonth}`;
     // Load new month's data
-    let loadedEntries = {};
+    let loadedEntries: Record<number, DayEntry[]> = {};
     let loadedNotes = "";
     try {
       const saved = localStorage.getItem(`dayEntries-${newKey}`);
-      loadedEntries = saved ? JSON.parse(saved) : {};
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        for (const [k, v] of Object.entries(parsed)) {
+          loadedEntries[Number(k)] = Array.isArray(v) ? v as DayEntry[] : [v as DayEntry];
+        }
+      }
     } catch {}
     try {
       const saved = localStorage.getItem(`monthNotes-${newKey}`);
@@ -161,14 +176,25 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
   const monthTs     = localTimesheets.filter(t => t.year === selectedYear && t.month === selectedMonth);
   const selectedTs  = monthTs.find(t => t.week_number === activeWeek);
 
-  const emptyEntry = { billingType: "", project: "", hours: "", manager: "", mileage: "", meals: "", lodging: "", other: "" };
-  const curEntry = selectedDay != null ? (dayEntries[selectedDay] ?? emptyEntry) : null;
-  function updateEntry(field: "billingType" | "project" | "hours" | "manager" | "mileage" | "meals" | "lodging" | "other", value: string) {
+  const emptyEntry: DayEntry = { billingType: "", project: "", hours: "", manager: "", mileage: "", meals: "", lodging: "", other: "" };
+  const curEntry = selectedDay != null ? (dayEntries[selectedDay]?.[selectedEntryIdx] ?? emptyEntry) : null;
+  function updateEntry(field: keyof DayEntry, value: string) {
     if (selectedDay == null) return;
-    setDayEntries(prev => ({
-      ...prev,
-      [selectedDay]: { ...(prev[selectedDay] ?? emptyEntry), [field]: value },
-    }));
+    setDayEntries(prev => {
+      const arr = [...(prev[selectedDay] ?? [emptyEntry])];
+      arr[selectedEntryIdx] = { ...(arr[selectedEntryIdx] ?? emptyEntry), [field]: value };
+      return { ...prev, [selectedDay]: arr };
+    });
+  }
+  function addEntry(day: number) {
+    setDayEntries(prev => {
+      const arr = [...(prev[day] ?? [emptyEntry]), { ...emptyEntry }];
+      return { ...prev, [day]: arr };
+    });
+    setSelectedEntryIdx((dayEntries[day] ?? [emptyEntry]).length);
+    setSelectedDay(day);
+    setEditingBilling(false);
+    setEditingLocation(false);
   }
 
   const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
@@ -429,7 +455,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
             {(() => {
               const totalWeekHours = Array.from({ length: endDay - startDay + 1 }, (_, i) => {
                 const d = startDay + i;
-                return parseFloat(dayEntries[d]?.hours || "0") || 0;
+                return (dayEntries[d] ?? []).reduce((s, e) => s + (parseFloat(e.hours || "0") || 0), 0);
               }).reduce((sum, h) => sum + h, 0);
               return (
                 <div className="flex items-center justify-end gap-1.5">
@@ -465,7 +491,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                         <button
                           type="button"
                           disabled={d == null}
-                          onClick={() => { if (d != null) { setSelectedDay(d); setEditingBilling(false); setEditingLocation(false); } }}
+                          onClick={() => { if (d != null) { setSelectedDay(d); setSelectedEntryIdx(0); setEditingBilling(false); setEditingLocation(false); } }}
                           className={`w-full flex flex-col items-center justify-center rounded-lg border py-3.5 transition-colors ${
                             d == null
                               ? "border-dashed border-gray-200 opacity-30 cursor-default"
@@ -490,47 +516,59 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
 
             {/* 4x7 dotted matrix grid with day entry buttons overlaid */}
             {(() => {
-              // Collect all days with data + selected day, assign rows to avoid overlap
-              const filledDays: { day: number; dow: number; isSelected: boolean }[] = [];
+              // Collect all entries across all days, each entry becomes a grid item
+              const filledItems: { day: number; entryIdx: number; dow: number; isSelected: boolean; key: string }[] = [];
               for (let d = startDay; d <= endDay; d++) {
-                const entry = dayEntries[d];
-                const hasFill = entry && (entry.hours || entry.project || entry.billingType);
-                if (hasFill || d === selectedDay) {
-                  filledDays.push({ day: d, dow: new Date(selectedYear, selectedMonth - 1, d).getDay(), isSelected: d === selectedDay });
+                const entries = dayEntries[d] ?? [];
+                entries.forEach((entry, idx) => {
+                  const hasFill = entry.hours || entry.project || entry.billingType;
+                  const isSel = d === selectedDay && idx === selectedEntryIdx;
+                  if (hasFill || isSel) {
+                    filledItems.push({ day: d, entryIdx: idx, dow: new Date(selectedYear, selectedMonth - 1, d).getDay(), isSelected: isSel, key: `${d}-${idx}` });
+                  }
+                });
+                // If selected day has no entries, add placeholder
+                if (d === selectedDay && entries.length === 0) {
+                  filledItems.push({ day: d, entryIdx: 0, dow: new Date(selectedYear, selectedMonth - 1, d).getDay(), isSelected: true, key: `${d}-0` });
                 }
               }
-              // Assign rows: selected day always row 0, others avoid overlap (±2 cols)
-              const rowAssign: Record<number, number> = {};
-              // Place selected day first at row 0
-              const selectedItem = filledDays.find(f => f.isSelected);
-              if (selectedItem) rowAssign[selectedItem.dow] = 0;
-              // Sort remaining by distance from selected (closest first)
-              const others = filledDays.filter(f => !f.isSelected).sort((a, b) => a.dow - b.dow);
+
+              // Assign rows: selected item at row 0, others avoid overlap (±2 cols)
+              const rowAssign: Record<string, number> = {};
+              const itemDows: Record<string, number> = {};
+              for (const fi of filledItems) itemDows[fi.key] = fi.dow;
+
+              const selItem = filledItems.find(f => f.isSelected);
+              if (selItem) rowAssign[selItem.key] = 0;
+
+              const others = filledItems.filter(f => !f.isSelected).sort((a, b) => a.dow - b.dow);
               for (const item of others) {
                 let row = 0;
                 let conflict = true;
                 while (conflict) {
                   conflict = false;
-                  for (const [dowStr, assignedRow] of Object.entries(rowAssign)) {
-                    if (Math.abs(Number(dowStr) - item.dow) <= 2 && assignedRow === row) {
+                  for (const [key, assignedRow] of Object.entries(rowAssign)) {
+                    if (Math.abs(itemDows[key] - item.dow) <= 2 && assignedRow === row) {
                       row++;
                       conflict = true;
                       break;
                     }
                   }
                 }
-                rowAssign[item.dow] = row;
+                rowAssign[item.key] = row;
               }
+
               const maxRow = Math.max(0, ...Object.values(rowAssign));
               const rowHeight = 40;
               // Check if any day has expense data — need extra height for expense bars below pills
               let hasAnyExpense = false;
               for (let d = startDay; d <= endDay; d++) {
-                const ex = dayEntries[d];
-                if (ex) {
+                const entries = dayEntries[d] ?? [];
+                for (const ex of entries) {
                   const et = (parseFloat(ex.mileage || "0") || 0) + (parseFloat(ex.meals || "0") || 0) + (parseFloat(ex.lodging || "0") || 0) + (parseFloat(ex.other || "0") || 0);
                   if (et > 0) { hasAnyExpense = true; break; }
                 }
+                if (hasAnyExpense) break;
               }
               const expenseExtra = hasAnyExpense ? 30 : 0;
               const gridHeight = Math.max(160, (maxRow + 1) * rowHeight + 80 + expenseExtra);
@@ -538,18 +576,18 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
               return (
                 <div className="relative mt-2" style={{ height: gridHeight }}>
                   {/* Day entry buttons */}
-                  {filledDays.map(({ day, dow, isSelected }) => {
+                  {filledItems.map(({ day, entryIdx: eIdx, dow, isSelected, key: itemKey }) => {
                     const centerPct = ((dow + 0.5) / 7) * 100;
                     const translateX = dow === 0 ? "-20%" : dow === 6 ? "-80%" : "-50%";
-                    const entry = isSelected ? curEntry! : (dayEntries[day] ?? emptyEntry);
-                    const row = rowAssign[dow] ?? 0;
+                    const entry = isSelected ? curEntry! : (dayEntries[day]?.[eIdx] ?? emptyEntry);
+                    const row = rowAssign[itemKey] ?? 0;
                     const topPx = 4 + row * rowHeight;
                     return (
                       <div
-                        key={day}
+                        key={itemKey}
                         className={`absolute flex items-center gap-2 rounded-full px-3 py-1 shadow-sm w-fit ${isSelected ? "bg-gray-700 z-10" : "bg-gray-700 z-[5] pointer-events-none overflow-hidden"}`}
                         style={{ left: `${centerPct}%`, transform: `translateX(${translateX})`, top: `${topPx}px` }}
-                        onClick={() => !isSelected && setSelectedDay(day)}
+                        onClick={() => { if (!isSelected) { setSelectedDay(day); setSelectedEntryIdx(eIdx); } }}
                       >
                         <div className="flex items-baseline shrink-0">
                           {isSelected ? (
@@ -565,7 +603,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                           ) : (
                             <span className="text-[22px] font-extrabold text-orange-500">{entry.hours || "0"}</span>
                           )}
-                          <span className={`text-[14px] font-bold ${isSelected ? "text-orange-400" : "text-orange-400"}`}>hrs</span>
+                          <span className="text-[14px] font-bold text-orange-400">hrs</span>
                         </div>
                         <div className="flex flex-col">
                           <div className="relative">
@@ -633,17 +671,47 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                       </div>
                     );
                   })}
+
+                  {/* "+" button to add another entry for the selected day */}
+                  {selectedDay != null && (() => {
+                    const dow = new Date(selectedYear, selectedMonth - 1, selectedDay).getDay();
+                    const centerPct = ((dow + 0.5) / 7) * 100;
+                    // Find the lowest row used by this day's entries
+                    let maxDayRow = -1;
+                    for (const fi of filledItems) {
+                      if (fi.day === selectedDay) {
+                        const r = rowAssign[fi.key] ?? 0;
+                        if (r > maxDayRow) maxDayRow = r;
+                      }
+                    }
+                    if (maxDayRow === -1) maxDayRow = 0;
+                    const topPx = 4 + (maxDayRow + 1) * rowHeight - 4;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => addEntry(selectedDay)}
+                        className="absolute z-10 w-6 h-6 rounded-full bg-gray-700 hover:bg-gray-600 text-white flex items-center justify-center shadow-md transition-colors"
+                        style={{ left: `${centerPct}%`, transform: "translateX(-50%)", top: `${topPx}px` }}
+                        title="Add another entry for this day"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z"/></svg>
+                      </button>
+                    );
+                  })()}
+
                   {/* Expense bars on the grid — positioned below timesheet pills */}
                   {(() => {
                     const expDays: { day: number; dow: number; expTotal: number; expCats: { amount: number; idx: number }[] }[] = [];
                     for (let d = startDay; d <= endDay; d++) {
-                      const exp = dayEntries[d] ?? emptyEntry;
-                      const amts = [
-                        parseFloat(exp.mileage || "0") || 0,
-                        parseFloat(exp.meals || "0") || 0,
-                        parseFloat(exp.lodging || "0") || 0,
-                        parseFloat(exp.other || "0") || 0,
-                      ];
+                      const entries = dayEntries[d] ?? [];
+                      // Sum expenses across all entries for this day
+                      const amts = [0, 0, 0, 0];
+                      for (const exp of entries) {
+                        amts[0] += parseFloat(exp.mileage || "0") || 0;
+                        amts[1] += parseFloat(exp.meals || "0") || 0;
+                        amts[2] += parseFloat(exp.lodging || "0") || 0;
+                        amts[3] += parseFloat(exp.other || "0") || 0;
+                      }
                       const total = amts[0] + amts[1] + amts[2] + amts[3];
                       if (total > 0) {
                         expDays.push({
@@ -656,8 +724,15 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                     }
                     return expDays.map(({ day, dow, expTotal, expCats: eCats }) => {
                       const centerPct = ((dow + 0.5) / 7) * 100;
-                      const tsRow = rowAssign[dow] ?? 0;
-                      const topPx = 4 + tsRow * rowHeight + 36; // below the timesheet pill
+                      // Find the max row for this day's entries
+                      let maxDayRow = 0;
+                      for (const fi of filledItems) {
+                        if (fi.day === day) {
+                          const r = rowAssign[fi.key] ?? 0;
+                          if (r > maxDayRow) maxDayRow = r;
+                        }
+                      }
+                      const topPx = 4 + maxDayRow * rowHeight + 36;
                       return (
                         <div
                           key={`exp-${day}`}
@@ -705,7 +780,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
             })()}
             {/* ── Daily Expense Input — dashboard card style ── */}
             {selectedDay != null && (() => {
-              const exp = dayEntries[selectedDay] ?? emptyEntry;
+              const exp = dayEntries[selectedDay]?.[selectedEntryIdx] ?? emptyEntry;
               const amts = [
                 parseFloat(exp.mileage || "0") || 0,
                 parseFloat(exp.meals || "0") || 0,
@@ -900,9 +975,9 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                     slots[dow] = d;
                   }
 
-                  // Compute week total
+                  // Compute week total (sum all entries per day)
                   for (let d = wStart; d <= wEnd; d++) {
-                    weekTotal += parseFloat(dayEntries[d]?.hours || "0") || 0;
+                    weekTotal += (dayEntries[d] ?? []).reduce((s, e) => s + (parseFloat(e.hours || "0") || 0), 0);
                   }
                   monthTotal += weekTotal;
 
@@ -915,8 +990,8 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                         if (d == null) {
                           return <td key={col} className="px-1 py-1 border-r border-gray-100 bg-gray-50/30" />;
                         }
-                        const entry = dayEntries[d];
-                        const hrs = parseFloat(entry?.hours || "0") || 0;
+                        const entries = dayEntries[d] ?? [];
+                        const hrs = entries.reduce((s, e) => s + (parseFloat(e.hours || "0") || 0), 0);
                         const isWeekend = col === 0 || col === 6;
                         return (
                           <td key={col} className={`px-1.5 py-1 align-top border-r border-gray-100 ${isWeekend ? "bg-gray-50/50" : ""}`}>
@@ -925,12 +1000,12 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                               <span className={`text-[13px] font-bold leading-tight tabular-nums ${hrs > 0 ? "text-orange-600" : "text-gray-200"}`}>
                                 {hrs > 0 ? hrs.toFixed(1) : "—"}
                               </span>
-                              {hrs > 0 && (
-                                <>
-                                  <span className="text-[9px] text-gray-500 leading-tight truncate" title={entry?.project}>{entry?.project || "—"}</span>
-                                  <span className="text-[9px] text-gray-400 leading-tight truncate" title={entry?.billingType}>{entry?.billingType || "—"}</span>
-                                </>
-                              )}
+                              {entries.filter(e => parseFloat(e.hours || "0") > 0).map((e, ei) => (
+                                <div key={ei} className="flex flex-col">
+                                  <span className="text-[9px] text-gray-500 leading-tight truncate" title={e.project}>{e.project || "—"}</span>
+                                  <span className="text-[9px] text-gray-400 leading-tight truncate" title={e.billingType}>{e.billingType || "—"}</span>
+                                </div>
+                              ))}
                             </div>
                           </td>
                         );
@@ -950,7 +1025,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                       for (let w = 1; w <= numWeeks; w++) {
                         for (let d = (w - 1) * 7 + 1; d <= Math.min(w * 7, daysInMonth); d++) {
                           if (new Date(selectedYear, selectedMonth - 1, d).getDay() === col) {
-                            dayTotal += parseFloat(dayEntries[d]?.hours || "0") || 0;
+                            dayTotal += (dayEntries[d] ?? []).reduce((s, e) => s + (parseFloat(e.hours || "0") || 0), 0);
                           }
                         }
                       }
