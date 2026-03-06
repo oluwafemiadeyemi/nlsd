@@ -123,6 +123,27 @@ export default function LoginPage() {
   const [confirmTouched, setConfirmTouched] = useState(false);
   const [hatIndex, setHatIndex] = useState(0);
 
+  // Handle auth code that lands on /login instead of /auth/callback
+  // (happens when deploy URL isn't in Supabase allowed redirect URLs)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (code) {
+      // Clean the code from URL immediately so it's not exposed
+      window.history.replaceState({}, "", "/login");
+      setLoading(true);
+      const supabase = createClient();
+      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+        if (!error) {
+          window.location.href = "/dashboard";
+        } else {
+          setError(error.message);
+          setLoading(false);
+        }
+      });
+    }
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setHatIndex((prev) => (prev + 1) % HEAD_POSITIONS.length);
