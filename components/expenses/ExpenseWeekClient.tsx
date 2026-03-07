@@ -10,6 +10,7 @@ import type { ExpenseDayEntry, ExpenseDay } from "@/domain/expenses/types";
 import { EXPENSE_DAYS, DAY_INDEX } from "@/domain/expenses/types";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { ReceiptUpload } from "./ReceiptUpload";
 import { Save, Send, CheckCircle, XCircle, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { addDays, format } from "date-fns";
@@ -66,6 +67,7 @@ export function ExpenseWeekClient({
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [notes, setNotes] = useState(employeeNotes ?? "");
   const [destination, setDestination] = useState(initialDestination ?? "");
+  const [receiptPaths, setReceiptPaths] = useState<Record<number, string | null>>({});
 
   const isDraft = status === "draft";
   const isSubmitted = status === "submitted";
@@ -149,6 +151,7 @@ export function ExpenseWeekClient({
           dinner_amount: entry.dinner,
           other_amount: entry.other,
           other_note: entry.otherNote ?? null,
+          notes: entry.notes || null,
         };
       });
 
@@ -340,13 +343,38 @@ export function ExpenseWeekClient({
       </div>
 
       {activeTab === "entry" && (
-        <ExpenseGrid
-          days={days}
-          ratePerKm={ratePerKm}
-          weekDates={weekDates}
-          readOnly={!canEdit}
-          onChange={setDays}
-        />
+        <>
+          <ExpenseGrid
+            days={days}
+            ratePerKm={ratePerKm}
+            weekDates={weekDates}
+            readOnly={!canEdit}
+            onChange={setDays}
+          />
+          {reportId && (
+            <div className="rounded-xl border border-border p-3">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Receipts</p>
+              <div className="grid grid-cols-6 gap-2">
+                {EXPENSE_DAYS.map((day) => {
+                  const idx = DAY_INDEX[day];
+                  return (
+                    <div key={day} className="flex flex-col items-center gap-1">
+                      <span className="text-[10px] text-muted-foreground">{day.charAt(0).toUpperCase() + day.slice(1)}</span>
+                      <ReceiptUpload
+                        userId={userId}
+                        reportId={reportId}
+                        dayIndex={idx}
+                        existingPath={receiptPaths[idx]}
+                        onUploaded={(path) => setReceiptPaths((prev) => ({ ...prev, [idx]: path }))}
+                        readOnly={!canEdit}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {activeTab === "history" && (

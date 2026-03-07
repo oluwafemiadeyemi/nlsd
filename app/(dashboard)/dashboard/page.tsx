@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { ProfileImageUpload } from "@/components/dashboard/ProfileImageUpload";
 import { MyRequestsCard } from "@/components/dashboard/MyRequestsCard";
 import { OverviewTabsCard } from "@/components/dashboard/OverviewTabsCard";
+import { HoursChart } from "@/components/dashboard/HoursChart";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -103,7 +104,7 @@ export default async function DashboardPage() {
   const isApprover = role === "manager" || role === "admin" || role === "finance";
   const isoWeek = String(getISOWeek(new Date())).padStart(2, "0");
   // Always fetch — used in live mode or as fallback
-  const [tsRes, exRes, profRes, wkExRes, pendingExRes, pendingTsRes]: any[] = await Promise.all([
+  const [tsRes, exRes, profRes, wkExRes, pendingExRes, pendingTsRes, monthlyTsRes]: any[] = await Promise.all([
     supabase.from("timesheets")
       .select("id,year,month,week_number,status,employee_notes,manager_comments,created_at")
       .eq("employee_id", user.id)
@@ -134,6 +135,10 @@ export default async function DashboardPage() {
           .order("submitted_at")
           .limit(5)
       : Promise.resolve({ data: [] }),
+    supabase.from("timesheets")
+      .select("month, timesheet_rows(weekly_total)")
+      .eq("employee_id", user.id)
+      .eq("year", year),
   ]);
 
   // ── Data source selection ──────────────────────────────────────────────────
@@ -171,19 +176,27 @@ export default async function DashboardPage() {
   const expBreakdown = isDemoMode ? DEMO.expenseBreakdown : liveExpBreakdown;
 
   // Pending approvals (managers/admins/finance)
+  // Monthly hours for chart
+  const monthlyHours = Array(12).fill(0);
+  for (const t of (monthlyTsRes.data ?? []) as any[]) {
+    const m = (t.month ?? 1) - 1;
+    const hrs = (t.timesheet_rows ?? []).reduce((s: number, r: any) => s + (r.weekly_total ?? 0), 0);
+    if (m >= 0 && m < 12) monthlyHours[m] += hrs;
+  }
+
   const pendingEx = (pendingExRes.data ?? []) as any[];
   const pendingTs = (pendingTsRes.data ?? []) as any[];
   const pendingItems = [
     ...pendingEx.map(e => ({
       id: e.id, type: "expense" as const,
-      name: (e.employee as any)?.display_name ?? "Unknown",
+      name: (e.employee as any)?.display_name ?? "—",
       period: `${e.year} Wk${e.week_number}`,
       submittedAt: e.submitted_at as string | null,
       href: `/expenses/${e.id}`,
     })),
     ...pendingTs.map((t: any) => ({
       id: t.id, type: "timesheet" as const,
-      name: (t.employee as any)?.display_name ?? "Unknown",
+      name: (t.employee as any)?.display_name ?? "—",
       period: t.week_number === 0 ? `${MONTH_NAMES[t.month ?? 1]} ${t.year}` : `${MONTH_NAMES[t.month ?? 1]} Wk${t.week_number}`,
       submittedAt: t.submitted_at as string | null,
       href: `/timesheets`,
@@ -350,6 +363,8 @@ export default async function DashboardPage() {
               userRole={role as any}
               userId={user.id}
             />
+
+            <HoursChart monthlyHours={monthlyHours} year={year} />
 
           </div>
 

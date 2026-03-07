@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { TopBar } from "@/components/layout/TopBar";
 import { ExpenseWeekClient } from "@/components/expenses/ExpenseWeekClient";
@@ -54,13 +54,7 @@ export default async function ExpenseReportPage({
     .single();
   const ratePerKm = rateRow?.rate_per_km ?? 0.61;
 
-  // Get user roles
-  const { data: rolesData }: any = await supabase.from("user_roles" as any).select("role").eq("user_id", user.id);
-  const roles = (rolesData ?? []).map((r: any) => r.role);
-  const userRole = roles.includes("admin") ? "admin"
-    : roles.includes("finance") ? "finance"
-    : roles.includes("manager") ? "manager"
-    : "employee";
+  const userRole = await getCurrentUserRole();
 
   if (id === "new") {
     const year = parseInt(sp.year ?? String(currentYear));
@@ -73,7 +67,7 @@ export default async function ExpenseReportPage({
       .eq("employee_id", user.id)
       .eq("year", year)
       .eq("week_number", weekNumber)
-      .single();
+      .maybeSingle();
 
     if (existing) redirect(`/expenses/${existing.id}`);
 
@@ -141,7 +135,7 @@ export default async function ExpenseReportPage({
       lunch: e.lunch_amount,
       dinner: e.dinner_amount,
       other: e.other_amount,
-      notes: e.other_note ?? "",
+      notes: e.notes ?? "",
       travelFrom: e.travel_from ?? "",
       travelTo: e.travel_to ?? "",
       otherNote: e.other_note ?? "",

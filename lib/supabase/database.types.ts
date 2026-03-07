@@ -300,6 +300,8 @@ export interface Database {
           dinner_amount: number;
           other_amount: number;
           other_note: string | null;
+          notes: string | null;
+          receipt_path: string | null;
         };
         Insert: {
           id?: string;
@@ -316,6 +318,8 @@ export interface Database {
           dinner_amount?: number;
           other_amount?: number;
           other_note?: string | null;
+          notes?: string | null;
+          receipt_path?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["expense_entries"]["Insert"]>;
       };

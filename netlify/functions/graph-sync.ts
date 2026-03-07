@@ -70,21 +70,14 @@ export default async function handler(_req: Request, _context: Context) {
     if (supabaseId) graphIdToSupabaseId.set(u.id, supabaseId);
   }
 
-  // ── Upsert profiles + roles + manager relationships ──────────────────────────
+  // ── Resolve profile IDs + provision new users ───────────────────────────────
   for (const graphUser of graphUsers) {
     try {
       const existingId =
         existingByAzureId.get(graphUser.id) ??
         existingByEmail.get(graphUser.mail.toLowerCase());
 
-      const managerId = graphUser.manager?.id
-        ? graphIdToSupabaseId.get(graphUser.manager.id) ?? null
-        : null;
-
-      let profileId = existingId;
-
-      if (!profileId) {
-        // Pre-provision: create auth user via Admin API
+      if (!existingId) {
         if (!graphUser.mail) {
           console.warn("[graph-sync] Skipping user without email:", graphUser.displayName);
           continue;
@@ -99,8 +92,8 @@ export default async function handler(_req: Request, _context: Context) {
           },
         });
 
+        let profileId: string;
         if (createErr) {
-          // User may already exist in auth but not matched in profiles
           const { data: { users: authUsers } } = await supabase.auth.admin.listUsers();
           const match = (authUsers ?? []).find(
             (u) => u.email?.toLowerCase() === graphUser.mail.toLowerCase()
@@ -116,62 +109,88 @@ export default async function handler(_req: Request, _context: Context) {
           profileId = newUser.user.id;
         }
 
-        // Ensure profile row exists (handle_new_user trigger may have a delay)
-        await supabase.from("profiles").upsert({
-          id: profileId,
-          email: graphUser.mail,
-          display_name: graphUser.displayName,
-          azure_user_id: graphUser.id,
-          job_title: graphUser.jobTitle ?? null,
-          department: graphUser.department ?? null,
-        } as any, { onConflict: "id" });
-
         graphIdToSupabaseId.set(graphUser.id, profileId);
         results.created++;
       } else {
-        // Update existing profile metadata
-        const { error } = await supabase
-          .from("profiles")
-          .update({
-            display_name: graphUser.displayName,
-            email: graphUser.mail,
-            azure_user_id: graphUser.id,
-            job_title: graphUser.jobTitle ?? null,
-            department: graphUser.department ?? null,
-          })
-          .eq("id", profileId);
-
-        if (error) {
-          results.errors++;
-          console.error("[graph-sync] profile update error:", error);
-          continue;
-        }
+        graphIdToSupabaseId.set(graphUser.id, existingId);
         results.updated++;
-      }
-
-      // Sync roles: wipe existing, insert fresh from group membership
-      await supabase.from("user_roles").delete().eq("user_id", profileId);
-      const rolesToInsert: Array<{ user_id: string; role: string }> = [];
-      if (adminSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "admin" });
-      if (managerSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "manager" });
-      if (financeSet.has(graphUser.id)) rolesToInsert.push({ user_id: profileId, role: "finance" });
-      if (rolesToInsert.length === 0) rolesToInsert.push({ user_id: profileId, role: "employee" });
-      await supabase.from("user_roles").insert(rolesToInsert as any);
-
-      // Sync manager relationship
-      if (managerId) {
-        await supabase
-          .from("employee_manager")
-          .upsert({ employee_id: profileId, manager_id: managerId }, {
-            onConflict: "employee_id",
-          });
-      } else {
-        await supabase.from("employee_manager").delete().eq("employee_id", profileId);
       }
     } catch (err) {
       results.errors++;
-      console.error("[graph-sync] error processing user:", graphUser.mail, err);
+      console.error("[graph-sync] error provisioning user:", graphUser.mail, err);
     }
+  }
+
+  // ── Batch upsert all profiles ──────────────────────────────────────────────
+  const profileUpserts = graphUsers
+    .filter((u) => u.mail && graphIdToSupabaseId.has(u.id))
+    .map((u) => ({
+      id: graphIdToSupabaseId.get(u.id)!,
+      email: u.mail,
+      display_name: u.displayName,
+      azure_user_id: u.id,
+      job_title: u.jobTitle ?? null,
+      department: u.department ?? null,
+    }));
+
+  if (profileUpserts.length) {
+    const { error } = await supabase.from("profiles").upsert(profileUpserts as any, { onConflict: "id" });
+    if (error) console.error("[graph-sync] batch profile upsert error:", error);
+  }
+
+  // ── Batch upsert roles ─────────────────────────────────────────────────────
+  const allRoleRows: Array<{ user_id: string; role: string }> = [];
+  const profileIdsToSync = new Set<string>();
+
+  for (const graphUser of graphUsers) {
+    const profileId = graphIdToSupabaseId.get(graphUser.id);
+    if (!profileId) continue;
+    profileIdsToSync.add(profileId);
+
+    const roles: string[] = [];
+    if (adminSet.has(graphUser.id)) roles.push("admin");
+    if (managerSet.has(graphUser.id)) roles.push("manager");
+    if (financeSet.has(graphUser.id)) roles.push("finance");
+    if (roles.length === 0) roles.push("employee");
+    for (const role of roles) allRoleRows.push({ user_id: profileId, role });
+  }
+
+  // Delete existing roles for synced users, then insert fresh
+  if (profileIdsToSync.size) {
+    await supabase.from("user_roles").delete().in("user_id", [...profileIdsToSync]);
+  }
+  if (allRoleRows.length) {
+    const { error } = await supabase.from("user_roles").insert(allRoleRows as any);
+    if (error) console.error("[graph-sync] batch role insert error:", error);
+  }
+
+  // ── Batch upsert manager relationships ─────────────────────────────────────
+  const managerUpserts: Array<{ employee_id: string; manager_id: string }> = [];
+  const noManagerIds: string[] = [];
+
+  for (const graphUser of graphUsers) {
+    const profileId = graphIdToSupabaseId.get(graphUser.id);
+    if (!profileId) continue;
+
+    const managerId = graphUser.manager?.id
+      ? graphIdToSupabaseId.get(graphUser.manager.id) ?? null
+      : null;
+
+    if (managerId) {
+      managerUpserts.push({ employee_id: profileId, manager_id: managerId });
+    } else {
+      noManagerIds.push(profileId);
+    }
+  }
+
+  if (managerUpserts.length) {
+    const { error } = await supabase
+      .from("employee_manager")
+      .upsert(managerUpserts, { onConflict: "employee_id" });
+    if (error) console.error("[graph-sync] batch manager upsert error:", error);
+  }
+  if (noManagerIds.length) {
+    await supabase.from("employee_manager").delete().in("employee_id", noManagerIds);
   }
 
   // ── Sync profile photos from Entra ──────────────────────────────────────────
@@ -187,30 +206,43 @@ export default async function handler(_req: Request, _context: Context) {
     (p) => p.azure_user_id && !p.avatar_url
   );
 
-  for (const profile of needsPhoto) {
-    try {
-      const photoData = await fetchUserPhoto(graph, profile.azure_user_id!);
-      if (!photoData) continue;
+  // Process photos in parallel batches of 5
+  const PHOTO_CONCURRENCY = 5;
+  for (let i = 0; i < needsPhoto.length; i += PHOTO_CONCURRENCY) {
+    const batch = needsPhoto.slice(i, i + PHOTO_CONCURRENCY);
+    const results2 = await Promise.allSettled(
+      batch.map(async (profile) => {
+        const photoData = await fetchUserPhoto(graph, profile.azure_user_id!);
+        if (!photoData) return false;
 
-      const path = `${profile.id}/avatar.jpg`;
-      const blob = new Blob([photoData], { type: "image/jpeg" });
+        const path = `${profile.id}/avatar.jpg`;
+        const blob = new Blob([photoData], { type: "image/jpeg" });
 
-      const { error: uploadErr } = await supabase.storage
-        .from("avatars")
-        .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
-      if (uploadErr) continue;
+        const { error: uploadErr } = await supabase.storage
+          .from("avatars")
+          .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+        if (uploadErr) return false;
 
-      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?t=${Date.now()}`;
-      await supabase
-        .from("profiles")
-        .update({ avatar_url: publicUrl } as any)
-        .eq("id", profile.id);
+        const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?t=${Date.now()}`;
+        await supabase
+          .from("profiles")
+          .update({ avatar_url: publicUrl } as any)
+          .eq("id", profile.id);
 
-      photosSynced++;
-    } catch {
-      // Non-fatal: skip photo
-    }
+        return true;
+      })
+    );
+    photosSynced += results2.filter((r) => r.status === "fulfilled" && r.value).length;
   }
+
+  // ── Audit log ────────────────────────────────────────────────────────────────
+  try {
+    await supabase.from("audit_log").insert({
+      entity_type: "directory_sync",
+      action: "sync_success",
+      comment: `Created=${results.created}, Updated=${results.updated}, Errors=${results.errors}, Photos=${photosSynced}, Roles=${allRoleRows.length}, Managers=${managerUpserts.length}`,
+    } as any);
+  } catch { /* non-fatal */ }
 
   const elapsed = Date.now() - startedAt;
   console.log(`[graph-sync] Done in ${elapsed}ms:`, { ...results, photosSynced });

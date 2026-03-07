@@ -117,5 +117,5 @@ export function formatCurrency(value: number, currency = "CAD"): string {
 
 function safe(v: number | null | undefined): number {
   if (typeof v !== "number" || isNaN(v)) return 0;
-  return v;
+  return Math.max(0, v);
 }

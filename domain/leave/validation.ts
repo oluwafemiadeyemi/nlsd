@@ -37,6 +37,13 @@ export function validateLeaveRequest(
     issues.push({ field: "endDate", message: "End date must be on or after start date.", severity: "error" });
   }
 
+  if (req.startDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (req.startDate < today) {
+      issues.push({ field: "startDate", message: "Start date cannot be in the past.", severity: "error" });
+    }
+  }
+
   if (req.hoursPerDay <= 0) {
     issues.push({ field: "hoursPerDay", message: "Hours per day must be greater than 0.", severity: "error" });
   }

@@ -172,6 +172,38 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     setSelectedDay(null);
   }
 
+  function copyFromPreviousMonth() {
+    const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
+    const prevYear = selectedMonth === 1 ? selectedYear - 1 : selectedYear;
+    const prevKey = `${prevYear}-${prevMonth}`;
+    try {
+      const saved = localStorage.getItem(`dayEntries-${prevKey}`);
+      if (!saved) return false;
+      const parsed = JSON.parse(saved);
+      // Re-map day entries: match by day-of-week, not day number
+      const prevDaysInMonth = new Date(prevYear, prevMonth, 0).getDate();
+      const curDaysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+      const mapped: Record<number, DayEntry[]> = {};
+      for (let d = 1; d <= curDaysInMonth; d++) {
+        const dow = new Date(selectedYear, selectedMonth - 1, d).getDay();
+        // Find a day in the previous month with the same day-of-week
+        for (let pd = 1; pd <= prevDaysInMonth; pd++) {
+          const pDow = new Date(prevYear, prevMonth - 1, pd).getDay();
+          if (pDow === dow && parsed[pd]) {
+            const entries = Array.isArray(parsed[pd]) ? parsed[pd] : [parsed[pd]];
+            if (entries.some((e: DayEntry) => e.hours || e.billingType || e.project)) {
+              mapped[d] = entries;
+              break;
+            }
+          }
+        }
+      }
+      if (Object.keys(mapped).length === 0) return false;
+      setDayEntries(mapped);
+      return true;
+    } catch { return false; }
+  }
+
   // Derive selectedTs early so notes can sync
   const monthTs     = localTimesheets.filter(t => t.year === selectedYear && t.month === selectedMonth);
   const selectedTs  = monthTs.find(t => t.week_number === activeWeek);
@@ -373,6 +405,20 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
           </select>
         </div>
         <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => {
+            if (copyFromPreviousMonth()) {
+              alert("Entries copied from previous month!");
+            } else {
+              alert("No entries found in previous month to copy.");
+            }
+          }}
+          className="px-3 py-1.5 text-[12px] font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
+          title="Copy timesheet entries from previous month"
+        >
+          Copy Prev Month
+        </button>
         <div className="flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
           <button
             type="button"

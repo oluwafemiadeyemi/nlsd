@@ -2,7 +2,7 @@ import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase/s
 import { redirect } from "next/navigation";
 import { TopBar } from "@/components/layout/TopBar";
 import Link from "next/link";
-import { Users, Share2, HeartPulse, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Users, Share2, HeartPulse, CheckCircle, XCircle, Clock, ScrollText } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Admin" };
@@ -110,6 +110,23 @@ export default async function AdminPage() {
                       <span className="text-xs text-emerald-600">No issues detected</span>
                     </div>
                   )}
+                </div>
+              </div>
+            </Link>
+
+            <Link
+              href="/admin/audit-log"
+              className="group p-5 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-start gap-4">
+                <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600">
+                  <ScrollText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm mb-1">Audit Trail</h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    View a complete log of who approved, rejected, or modified timesheets, expenses, and leave requests.
+                  </p>
                 </div>
               </div>
             </Link>

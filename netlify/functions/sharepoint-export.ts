@@ -15,6 +15,7 @@
 import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { createGraphClient, uploadToSharePoint } from "../../lib/msGraph/client";
+import { timingSafeEqual } from "crypto";
 
 
 export const config: Config = {
@@ -24,13 +25,19 @@ export const config: Config = {
 // day_index 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+function safeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 export default async function handler(req: Request, _context: Context) {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  const secret = req.headers.get("x-workhub-secret");
-  if (secret !== process.env.GRAPH_SYNC_SECRET) {
+  const secret = req.headers.get("x-workhub-secret") ?? "";
+  const expected = process.env.GRAPH_SYNC_SECRET ?? "";
+  if (!secret || !expected || !safeCompare(secret, expected)) {
     return new Response("Unauthorized", { status: 401 });
   }
 

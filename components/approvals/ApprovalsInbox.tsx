@@ -139,9 +139,9 @@ export function ApprovalsInbox({ items: initialItems, managerId, userRole }: App
   const selectedIds = Array.from(selected);
 
   return (
-    <div className="flex h-full">
+    <div className="flex flex-col md:flex-row h-full">
       {/* Left: item list */}
-      <div className="w-80 shrink-0 border-r border-border flex flex-col">
+      <div className="w-full md:w-80 shrink-0 border-b md:border-b-0 md:border-r border-border flex flex-col max-h-[40vh] md:max-h-none">
         {/* Bulk action bar */}
         {selected.size > 0 && (
           <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-border">

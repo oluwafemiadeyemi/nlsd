@@ -1,6 +1,7 @@
 import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { TopBar } from "@/components/layout/TopBar";
+import { CsvExportButtons } from "@/components/reports/CsvExportButtons";
 import { formatCurrency } from "@/lib/utils";
 import type { Metadata } from "next";
 
@@ -86,10 +87,12 @@ export default async function ReportsPage() {
             ))}
           </div>
 
-          <div className="rounded-xl border border-border p-6 text-center text-muted-foreground">
-            <p className="text-sm">
-              Detailed reports with export capabilities are available in the full release.
+          <div className="rounded-xl border border-border p-6">
+            <h3 className="font-semibold text-sm mb-3">Export Data</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Download {currentYear} timesheet or expense data as CSV for payroll processing.
             </p>
+            <CsvExportButtons year={currentYear} />
           </div>
         </div>
       </div>

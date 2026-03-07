@@ -15,10 +15,18 @@ export default async function LeavePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: requests }: any = await (supabase.from as any)("leave_requests")
-    .select("id, leave_type, start_date, end_date, status, total_hours, created_at")
-    .eq("employee_id", user.id)
-    .order("created_at", { ascending: false });
+  const currentYear = new Date().getFullYear();
+
+  const [{ data: requests }, { data: balances }]: any[] = await Promise.all([
+    (supabase.from as any)("leave_requests")
+      .select("id, leave_type, start_date, end_date, status, total_hours, created_at")
+      .eq("employee_id", user.id)
+      .order("created_at", { ascending: false }),
+    (supabase.from as any)("leave_balances")
+      .select("leave_type, entitlement_hours, used_hours")
+      .eq("employee_id", user.id)
+      .eq("year", currentYear),
+  ]);
 
   return (
     <div className="flex flex-col h-full">
@@ -35,7 +43,32 @@ export default async function LeavePage() {
       />
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto space-y-6">
+          {/* Leave Balances */}
+          {(balances ?? []).length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {(balances ?? []).map((b: any) => {
+                const remaining = Math.max(0, b.entitlement_hours - b.used_hours);
+                const pct = b.entitlement_hours > 0 ? (b.used_hours / b.entitlement_hours) * 100 : 0;
+                return (
+                  <div key={b.leave_type} className="rounded-xl border border-border p-4">
+                    <p className="text-xs text-muted-foreground font-medium">{b.leave_type}</p>
+                    <p className="text-2xl font-bold mt-1">{remaining}h</p>
+                    <div className="w-full bg-muted rounded-full h-1.5 mt-2">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-emerald-500"}`}
+                        style={{ width: `${Math.min(100, pct)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {b.used_hours}h used of {b.entitlement_hours}h
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {!requests?.length ? (
             <div className="text-center py-16">
               <p className="text-muted-foreground mb-4">No leave requests yet.</p>
