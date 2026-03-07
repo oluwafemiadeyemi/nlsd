@@ -82,7 +82,7 @@ export function ExpenseWeekClient({
   const canReject =
     canApprove ||
     (isApproved && (userRole === "admin" || userRole === "finance")) ||
-    (isManagerApproved && (userRole === "manager" || userRole === "admin" || userRole === "finance"));
+    (isManagerApproved && (userRole === "admin" || userRole === "finance"));
 
   const validation = validateExpenseWeek(days);
 

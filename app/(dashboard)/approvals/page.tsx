@@ -62,7 +62,7 @@ export default async function ApprovalsPage() {
       amountLabel: `$${total.toFixed(2)}`,
       submittedAt: e.submitted_at,
       user: { id: e.employee?.id, display_name: e.employee?.display_name ?? "—", email: e.employee?.email ?? "", department: e.employee?.department },
-      href: `/expenses/${e.id}`,
+      href: `/approvals/${e.id}?type=expense`,
     };
   });
 
@@ -79,7 +79,7 @@ export default async function ApprovalsPage() {
       amountLabel: `${totalHours.toFixed(1)} hrs`,
       submittedAt: t.submitted_at,
       user: { id: t.employee?.id, display_name: t.employee?.display_name ?? "—", email: t.employee?.email ?? "", department: t.employee?.department },
-      href: `/dashboard`,
+      href: `/approvals/${t.id}?type=timesheet`,
     };
   });
 
@@ -95,7 +95,7 @@ export default async function ApprovalsPage() {
       amountLabel: `${(l.total_hours ?? 0).toFixed(1)} hrs (${l.leave_type})`,
       submittedAt: l.submitted_at,
       user: { id: l.employee?.id, display_name: l.employee?.display_name ?? "—", email: l.employee?.email ?? "", department: l.employee?.department },
-      href: `/leave/${l.id}`,
+      href: `/approvals/${l.id}?type=leave`,
     };
   });
 
