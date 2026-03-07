@@ -104,7 +104,7 @@ export default async function DashboardPage() {
   const isApprover = role === "manager" || role === "admin" || role === "finance";
   const isoWeek = String(getISOWeek(new Date())).padStart(2, "0");
   // Always fetch — used in live mode or as fallback
-  const [tsRes, exRes, profRes, wkExRes, pendingExRes, pendingTsRes, monthlyTsRes]: any[] = await Promise.all([
+  const [tsRes, exRes, profRes, wkExRes, pendingExRes, pendingTsRes, monthlyTsRes, pendingLeaveRes]: any[] = await Promise.all([
     supabase.from("timesheets")
       .select("id,year,month,week_number,status,employee_notes,manager_comments,created_at")
       .eq("employee_id", user.id)
@@ -138,7 +138,15 @@ export default async function DashboardPage() {
     supabase.from("timesheets")
       .select("month, timesheet_rows(weekly_total)")
       .eq("employee_id", user.id)
-      .eq("year", year),
+      .eq("year", year)
+      .neq("status", "draft"),
+    isApprover
+      ? supabase.from("leave_requests")
+          .select("id, leave_type, start_date, end_date, total_hours, submitted_at, employee:profiles!employee_id(display_name)")
+          .eq("status", "submitted")
+          .order("submitted_at")
+          .limit(5)
+      : Promise.resolve({ data: [] }),
   ]);
 
   // ── Data source selection ──────────────────────────────────────────────────
@@ -186,22 +194,31 @@ export default async function DashboardPage() {
 
   const pendingEx = (pendingExRes.data ?? []) as any[];
   const pendingTs = (pendingTsRes.data ?? []) as any[];
+  const pendingLeave = (pendingLeaveRes.data ?? []) as any[];
   const pendingItems = [
-    ...pendingEx.map(e => ({
+    ...pendingEx.map((e: any) => ({
       id: e.id, type: "expense" as const,
       name: (e.employee as any)?.display_name ?? "—",
       period: `${e.year} Wk${e.week_number}`,
       submittedAt: e.submitted_at as string | null,
-      href: `/expenses/${e.id}`,
+      href: `/approvals/${e.id}?type=expense`,
     })),
     ...pendingTs.map((t: any) => ({
       id: t.id, type: "timesheet" as const,
       name: (t.employee as any)?.display_name ?? "—",
-      period: t.week_number === 0 ? `${MONTH_NAMES[t.month ?? 1]} ${t.year}` : `${MONTH_NAMES[t.month ?? 1]} Wk${t.week_number}`,
+      period: `${MONTH_NAMES[t.month ?? 1]} Wk${t.week_number}`,
       submittedAt: t.submitted_at as string | null,
-      href: `/timesheets`,
+      href: `/approvals/${t.id}?type=timesheet`,
+    })),
+    ...pendingLeave.map((l: any) => ({
+      id: l.id, type: "leave" as const,
+      name: (l.employee as any)?.display_name ?? "—",
+      period: `${l.leave_type}`,
+      submittedAt: l.submitted_at as string | null,
+      href: `/approvals/${l.id}?type=leave`,
     })),
   ].sort((a, b) => (a.submittedAt ?? "").localeCompare(b.submittedAt ?? "")).slice(0, 6);
+  const pendingTotal = pendingEx.length + pendingTs.length + pendingLeave.length;
 
   const dotForStatus = (s: string) =>
     s === "approved" ? "check-green" : s === "manager_approved" ? "check-blue" : s === "submitted" ? "pending-gray" : s === "manager_rejected" ? "rejected-orange" : s === "rejected" ? "rejected-red" : "ring-blue";
@@ -210,7 +227,7 @@ export default async function DashboardPage() {
   const requests = isDemoMode ? DEMO.requests : [
     ...realTimesheets.slice(0, 3).map((t:any) => ({
       id: t.id, kind: "timesheet", label: "Time Sheet",
-      sub: t.week_number === 0 ? `${MONTH_NAMES[t.month ?? 1]} ${t.year}` : `${MONTH_NAMES[t.month ?? 1]} Wk${t.week_number}`,
+      sub: `${MONTH_NAMES[t.month ?? 1]} Wk${t.week_number}`,
       dot: dotForStatus(t.status),
     })),
     ...realExpenses.slice(0, 2).map((e:any) => ({
@@ -237,12 +254,12 @@ export default async function DashboardPage() {
           <div className="flex-1" />
           {/* Actions */}
           <div className="flex items-center gap-2 shrink-0">
-            <button className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
+            <span className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5">
               <svg className="w-3.5 h-3.5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/>
               </svg>
-              01–24 September
-            </button>
+              {format(new Date(), "MMMM d, yyyy")}
+            </span>
             <Link href={newExHref} className="flex items-center gap-1.5 bg-gray-900 text-white text-sm font-semibold px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-colors">
               Quick Add
               <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -257,8 +274,7 @@ export default async function DashboardPage() {
       {/* ══════════════════ 3-COLUMN GRID ══════════════════ */}
       <div className="px-4 pb-4">
         <div
-          className="grid gap-4"
-          style={{ gridTemplateColumns: "310px 1fr 300px" }}
+          className="grid gap-4 grid-cols-1 lg:grid-cols-[310px_1fr_300px]"
         >
 
           {/* ══ LEFT: Profile card + Pending Approvals ══ */}
@@ -292,9 +308,9 @@ export default async function DashboardPage() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-gray-800 text-sm">Pending Approvals</h3>
-                    {pendingItems.length > 0 && (
+                    {pendingTotal > 0 && (
                       <span className="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
-                        {pendingEx.length + pendingTs.length}
+                        {pendingTotal}
                       </span>
                     )}
                   </div>
@@ -318,10 +334,14 @@ export default async function DashboardPage() {
                     {pendingItems.map(item => (
                       <Link key={item.id} href={item.href}>
                         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100 hover:bg-amber-100 transition-colors">
-                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${item.type === "timesheet" ? "bg-blue-100" : "bg-orange-100"}`}>
+                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${item.type === "timesheet" ? "bg-blue-100" : item.type === "leave" ? "bg-amber-100" : "bg-orange-100"}`}>
                             {item.type === "timesheet" ? (
                               <svg className="w-3.5 h-3.5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/>
+                              </svg>
+                            ) : item.type === "leave" ? (
+                              <svg className="w-3.5 h-3.5 text-amber-600" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/>
                               </svg>
                             ) : (
                               <svg className="w-3.5 h-3.5 text-orange-600" viewBox="0 0 20 20" fill="currentColor">
@@ -332,15 +352,15 @@ export default async function DashboardPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-[11px] font-semibold text-gray-800 truncate">{item.name}</p>
-                            <p className="text-[10px] text-gray-400">{item.type === "timesheet" ? "Timesheet" : "Expense"} · {item.period}</p>
+                            <p className="text-[10px] text-gray-400 capitalize">{item.type} · {item.period}</p>
                           </div>
                           <div className="w-2 h-2 rounded-full bg-amber-400 shrink-0"/>
                         </div>
                       </Link>
                     ))}
-                    {(pendingEx.length + pendingTs.length) > 6 && (
+                    {pendingTotal > 6 && (
                       <Link href="/approvals" className="block text-center text-[11px] text-primary font-semibold py-1 hover:text-primary/80">
-                        +{pendingEx.length + pendingTs.length - 6} more
+                        +{pendingTotal - 6} more
                       </Link>
                     )}
                   </div>
