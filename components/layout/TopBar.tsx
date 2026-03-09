@@ -7,7 +7,7 @@ interface TopBarProps {
 
 export function TopBar({ title, actions }: TopBarProps) {
   return (
-    <header className="h-12 border-b border-border bg-background flex items-center justify-between px-6 shrink-0">
+    <header className="h-12 border-b border-border bg-background flex items-center justify-between px-6 shrink-0 no-print">
       {title && (
         <h1 className="text-sm font-semibold text-foreground">{title}</h1>
       )}

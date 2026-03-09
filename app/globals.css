@@ -131,13 +131,77 @@
     display: none !important;
   }
 
-  .print-full-width {
-    width: 100% !important;
-    max-width: 100% !important;
+  .print-header {
+    display: block !important;
   }
 
+  /* Remove layout constraints so content fills the page */
   body {
-    font-size: 11pt;
+    font-size: 10pt;
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide top navigation */
+  nav, header, [data-topnav] {
+    display: none !important;
+  }
+
+  /* Remove overflow constraints so content can flow across pages */
+  main, .flex-1, .overflow-y-auto, .overflow-x-auto, .overflow-hidden {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .h-screen {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Full-width content */
+  .print-full-width,
+  .print-expense-sheet,
+  .print-timesheet {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0.5rem !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Expense grid: make table fit page width */
+  .expense-grid {
+    font-size: 9pt;
+  }
+
+  .expense-grid th,
+  .expense-grid td {
+    padding: 3px 6px !important;
+  }
+
+  .expense-grid input {
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Timesheet month table */
+  .print-timesheet table {
+    font-size: 9pt;
+  }
+
+  /* Remove sticky positioning in print */
+  .sticky {
+    position: static !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: landscape;
+    margin: 1cm;
   }
 }
 

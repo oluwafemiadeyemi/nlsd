@@ -373,9 +373,21 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
   }, [monthRecord?.id]);
 
   return (
-    <div className="rounded-2xl bg-white border border-gray-100 shadow-sm p-4">
+    <div className="rounded-2xl bg-white border border-gray-100 shadow-sm p-4 print-timesheet">
+      {/* Print-only header */}
+      <div className="hidden print:block print-header mb-4">
+        <h1 className="text-xl font-bold">Timesheet — {MONTH_NAMES[selectedMonth]} {selectedYear}</h1>
+        {monthRecord && (
+          <div className="text-sm mt-1">
+            <span className="font-semibold">Status:</span>{" "}
+            {monthRecord.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+          </div>
+        )}
+        <hr className="mt-3 border-gray-300" />
+      </div>
+
       {/* Header — Month / Year / Manager dropdowns + Week/Month toggle */}
-      <div className="flex items-center gap-4 mb-3 flex-wrap">
+      <div className="flex items-center gap-4 mb-3 flex-wrap no-print">
         <select
           value={selectedMonth}
           onChange={e => switchPeriod(Number(e.target.value), selectedYear)}
@@ -419,6 +431,15 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
         >
           Copy Prev Month
         </button>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="no-print flex items-center gap-1 px-3 py-1.5 text-[12px] font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
+          title="Print timesheet"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Print
+        </button>
         <div className="flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
           <button
             type="button"
@@ -438,7 +459,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
       </div>
 
       {/* Quick-stat chips */}
-      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+      <div className="flex items-center gap-1.5 mb-3 flex-wrap no-print">
         {submittedCnt > 0 && (
           <div className="flex items-center gap-1 bg-amber-50 rounded-lg px-2 py-1">
             <div className="w-1.5 h-1.5 rounded-full bg-amber-400"/>
@@ -1096,7 +1117,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
       </div>
 
       {/* ── Notes, Approval Comments, Submit (month-level) ── */}
-      <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+      <div className="mt-4 border-t border-gray-100 pt-4 space-y-3 no-print">
         {/* Employee notes */}
         <div>
           <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">

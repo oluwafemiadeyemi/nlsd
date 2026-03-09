@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ExpenseGrid } from "./ExpenseGrid";
 import { AuditTimeline } from "@/components/ui/AuditTimeline";
@@ -11,13 +11,15 @@ import { EXPENSE_DAYS, DAY_INDEX } from "@/domain/expenses/types";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { ReceiptUpload } from "./ReceiptUpload";
-import { Save, Send, CheckCircle, XCircle, RotateCcw } from "lucide-react";
+import { Save, Send, CheckCircle, XCircle, RotateCcw, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { addDays, format } from "date-fns";
 
 interface ExpenseWeekClientProps {
   reportId: string | null;
   userId: string;
+  /** The employee who owns the report (for receipt storage paths). Defaults to userId. */
+  employeeId?: string;
   weekNumber: string;
   year: number;
   weekBeginningDate: string;
@@ -42,6 +44,7 @@ type Tab = "entry" | "history";
 export function ExpenseWeekClient({
   reportId,
   userId,
+  employeeId,
   weekNumber,
   year,
   weekBeginningDate,
@@ -55,6 +58,7 @@ export function ExpenseWeekClient({
   destination: initialDestination,
   auditLog,
 }: ExpenseWeekClientProps) {
+  const receiptOwnerId = employeeId ?? userId;
   const router = useRouter();
   const supabase = createClient();
   const [days, setDays] = useState<Record<ExpenseDay, ExpenseDayEntry>>(initialDays);
@@ -66,6 +70,30 @@ export function ExpenseWeekClient({
   const [notes, setNotes] = useState(employeeNotes ?? "");
   const [destination, setDestination] = useState(initialDestination ?? "");
   const [receiptPaths, setReceiptPaths] = useState<Record<number, string | null>>({});
+
+  // Load existing receipts from storage on mount
+  useEffect(() => {
+    if (!reportId) return;
+    (async () => {
+      try {
+        const { data: files } = await supabase.storage
+          .from("expense-receipts")
+          .list(`${receiptOwnerId}/${reportId}`);
+        if (!files) return;
+        const paths: Record<number, string | null> = {};
+        for (const file of files) {
+          const match = file.name.match(/^day(\d+)\./);
+          if (match) {
+            const idx = parseInt(match[1]);
+            paths[idx] = `${receiptOwnerId}/${reportId}/${file.name}`;
+          }
+        }
+        setReceiptPaths(paths);
+      } catch {
+        // Storage not available or bucket missing — ignore
+      }
+    })();
+  }, [reportId, receiptOwnerId]);
 
   const isDraft = status === "draft";
   const isSubmitted = status === "submitted";
@@ -255,14 +283,33 @@ export function ExpenseWeekClient({
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="max-w-6xl mx-auto space-y-4 print-expense-sheet">
+      {/* Print-only header */}
+      <div className="hidden print:block print-header mb-4">
+        <h1 className="text-xl font-bold">Expense Report — Week {weekNumber}, {year}</h1>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-1 mt-2 text-sm">
+          <div><span className="font-semibold">Status:</span> {status.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+          {destination && <div><span className="font-semibold">Destination:</span> {destination}</div>}
+          {notes && <div className="col-span-2"><span className="font-semibold">Notes:</span> {notes}</div>}
+        </div>
+        <hr className="mt-3 border-gray-300" />
+      </div>
+
+      <div className="flex items-center justify-between flex-wrap gap-3 no-print">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">Week {weekNumber}, {year}</h2>
           <StatusBadge status={status} />
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.print()}
+            className="no-print flex items-center gap-1.5 px-3 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors"
+          >
+            <Printer className="w-4 h-4" />
+            Print
+          </button>
+
           {canEdit && (
             <>
               <button
@@ -320,7 +367,7 @@ export function ExpenseWeekClient({
 
       {/* Destination + notes fields */}
       {canEdit && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 no-print">
           <div>
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Destination</label>
             <input
@@ -345,7 +392,7 @@ export function ExpenseWeekClient({
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-border">
+      <div className="flex border-b border-border no-print">
         {(["entry", "history"] as Tab[]).map((tab) => (
           <button
             key={tab}
@@ -371,7 +418,7 @@ export function ExpenseWeekClient({
             onChange={setDays}
           />
           {reportId && (
-            <div className="rounded-xl border border-border p-3">
+            <div className="rounded-xl border border-border p-3 no-print">
               <p className="text-xs font-medium text-muted-foreground mb-2">Receipts</p>
               <div className="grid grid-cols-6 gap-2">
                 {EXPENSE_DAYS.map((day) => {
@@ -380,7 +427,7 @@ export function ExpenseWeekClient({
                     <div key={day} className="flex flex-col items-center gap-1">
                       <span className="text-[10px] text-muted-foreground">{day.charAt(0).toUpperCase() + day.slice(1)}</span>
                       <ReceiptUpload
-                        userId={userId}
+                        userId={receiptOwnerId}
                         reportId={reportId}
                         dayIndex={idx}
                         existingPath={receiptPaths[idx]}
@@ -397,7 +444,7 @@ export function ExpenseWeekClient({
       )}
 
       {activeTab === "history" && (
-        <div className="max-w-sm">
+        <div className="max-w-sm no-print">
           <AuditTimeline entries={auditLog} />
         </div>
       )}

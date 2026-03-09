@@ -143,6 +143,7 @@ export default async function ExpenseReportPage({
         <ExpenseWeekClient
           reportId={report.id}
           userId={user.id}
+          employeeId={report.employee_id}
           weekNumber={report.week_number}
           year={report.year}
           weekBeginningDate={report.week_beginning_date}

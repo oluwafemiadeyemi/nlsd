@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { Upload, X, FileImage } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Upload, X, FileImage, Eye } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -19,6 +19,12 @@ export function ReceiptUpload({ userId, reportId, dayIndex, existingPath, onUplo
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [path, setPath] = useState<string | null>(existingPath ?? null);
+  const [viewing, setViewing] = useState(false);
+
+  // Sync when existingPath changes (e.g. after storage listing completes)
+  useEffect(() => {
+    if (existingPath !== undefined) setPath(existingPath);
+  }, [existingPath]);
 
   async function handleUpload(file: File) {
     if (!file) return;
@@ -58,13 +64,37 @@ export function ReceiptUpload({ userId, reportId, dayIndex, existingPath, onUplo
     }
   }
 
+  async function handleView() {
+    if (!path || viewing) return;
+    setViewing(true);
+    try {
+      const { data, error } = await supabase.storage
+        .from("expense-receipts")
+        .createSignedUrl(path, 300); // 5-minute signed URL
+
+      if (error) throw error;
+      if (data?.signedUrl) {
+        window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (err: any) {
+      toast({ title: "Could not open receipt", description: err.message, variant: "destructive" });
+    } finally {
+      setViewing(false);
+    }
+  }
+
   if (readOnly) {
     if (!path) return null;
     return (
-      <div className="flex items-center gap-1 text-xs text-emerald-600">
-        <FileImage className="w-3 h-3" />
-        Receipt attached
-      </div>
+      <button
+        onClick={handleView}
+        disabled={viewing}
+        className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 transition-colors cursor-pointer disabled:opacity-50"
+        title="Click to view receipt"
+      >
+        <Eye className="w-3 h-3" />
+        {viewing ? "Opening…" : "View Receipt"}
+      </button>
     );
   }
 
@@ -82,10 +112,15 @@ export function ReceiptUpload({ userId, reportId, dayIndex, existingPath, onUplo
       />
       {path ? (
         <div className="flex items-center gap-1">
-          <span className="text-xs text-emerald-600 flex items-center gap-0.5">
+          <button
+            onClick={handleView}
+            disabled={viewing}
+            className="text-xs text-emerald-600 hover:text-emerald-800 flex items-center gap-0.5 transition-colors"
+            title="Click to view receipt"
+          >
             <FileImage className="w-3 h-3" />
-            Receipt
-          </span>
+            {viewing ? "Opening…" : "Receipt"}
+          </button>
           <button
             onClick={handleRemove}
             disabled={uploading}
