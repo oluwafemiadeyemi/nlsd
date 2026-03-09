@@ -148,6 +148,18 @@
     display: none !important;
   }
 
+  /* ── Scope printing: only show the print target, hide everything else ── */
+  *:has(.print-timesheet) > *:not(:has(.print-timesheet)):not(.print-timesheet),
+  *:has(.print-expense-sheet) > *:not(:has(.print-expense-sheet)):not(.print-expense-sheet) {
+    display: none !important;
+  }
+
+  /* Collapse grid layout so print target fills full width */
+  .grid:has(.print-timesheet),
+  .grid:has(.print-expense-sheet) {
+    display: block !important;
+  }
+
   /* Remove overflow constraints so content can flow across pages */
   main, .flex-1, .overflow-y-auto, .overflow-x-auto, .overflow-hidden {
     overflow: visible !important;

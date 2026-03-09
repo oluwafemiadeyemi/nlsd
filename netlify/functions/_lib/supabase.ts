@@ -1,8 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 
-const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing environment variable: ${name}`);
+  return value;
+}
+
+const URL = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
+const ANON_KEY = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+const SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
 
 /** Service-role client — bypasses RLS. Only use in trusted server-side functions. */
 export function supabaseAdmin() {

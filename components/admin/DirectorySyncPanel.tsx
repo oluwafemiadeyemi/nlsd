@@ -44,7 +44,7 @@ export function DirectorySyncPanel({ runs, activeUserCount, roleMappingCount }: 
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Not authenticated");
 
-      const res = await fetch("/api/admin/directory-sync-run", {
+      const res = await fetch("/.netlify/functions/admin-directory-sync-run", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
       });

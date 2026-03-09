@@ -172,7 +172,7 @@ export default async function handler(req: Request, _context: Context) {
     }
 
     // 5b) Sync profile photos from Entra (skip users who already have an avatar)
-    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
     const usersNeedingPhotos = users.filter((u) => {
       const p = profileByAzureId.get(u.id);
       return p && !p.avatar_url;

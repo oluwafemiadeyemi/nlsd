@@ -24,9 +24,19 @@ export default async function handler(_req: Request, _context: Context) {
   const startedAt = Date.now();
   const results = { created: 0, updated: 0, errors: 0 };
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(
+      "Missing Supabase environment variables: " +
+      [!supabaseUrl && "NEXT_PUBLIC_SUPABASE_URL", !serviceRoleKey && "SUPABASE_SERVICE_ROLE_KEY"]
+        .filter(Boolean).join(", ")
+    );
+  }
+
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    supabaseUrl,
+    serviceRoleKey,
     { auth: { persistSession: false } }
   );
 
@@ -197,7 +207,7 @@ export default async function handler(_req: Request, _context: Context) {
 
   // ── Sync profile photos from Entra ──────────────────────────────────────────
   let photosSynced = 0;
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const SUPABASE_URL = supabaseUrl;
 
   // Reload profiles to check which need photos
   const { data: profilesForPhotos } = await supabase
