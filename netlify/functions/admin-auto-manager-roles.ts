@@ -9,12 +9,12 @@
  * (unless they are also admin and keepAdminAsManager=true).
  */
 
-import type { Config, Context } from "@netlify/functions";
+import type { Context } from "@netlify/functions";
 import { json, getBearerToken, requireMethod } from "./_lib/http";
 import { supabaseAdmin, supabaseUser } from "./_lib/supabase";
 import { writeAudit } from "./_lib/audit";
 
-export const config: Config = { path: "/api/admin/auto-manager-roles" };
+// No config.path — accessible at /.netlify/functions/admin-auto-manager-roles
 
 export default async function handler(req: Request, _context: Context) {
   const methodErr = requireMethod(req, "POST");

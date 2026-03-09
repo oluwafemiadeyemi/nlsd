@@ -12,7 +12,7 @@
  * - Logs the run to directory_sync_runs
  */
 
-import type { Config, Context } from "@netlify/functions";
+import type { Context } from "@netlify/functions";
 import { json, getBearerToken, requireMethod } from "./_lib/http";
 import { supabaseAdmin, supabaseUser } from "./_lib/supabase";
 import { writeAudit } from "./_lib/audit";
@@ -20,7 +20,8 @@ import { graphGet, graphGetAllPages, graphGetBinary } from "./_lib/graph/client"
 import { mapWithConcurrency } from "./_lib/graph/concurrency";
 import { getAppConfig } from "../../lib/config/appConfig";
 
-export const config: Config = { path: "/api/admin/directory-sync-run" };
+// No config.path — accessible at /.netlify/functions/admin-directory-sync-run
+// (config.path conflicts with @netlify/plugin-nextjs catch-all routing)
 
 const MANAGER_LOOKUP_CONCURRENCY = Number(process.env.GRAPH_MANAGER_LOOKUP_CONCURRENCY ?? "10");
 

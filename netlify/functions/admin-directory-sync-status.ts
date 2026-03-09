@@ -8,11 +8,11 @@
  * Accessible to admin and finance roles.
  */
 
-import type { Config, Context } from "@netlify/functions";
+import type { Context } from "@netlify/functions";
 import { json, getBearerToken } from "./_lib/http";
 import { supabaseUser } from "./_lib/supabase";
 
-export const config: Config = { path: "/api/admin/directory-sync-status" };
+// No config.path — accessible at /.netlify/functions/admin-directory-sync-status
 
 export default async function handler(req: Request, _context: Context) {
   try {
