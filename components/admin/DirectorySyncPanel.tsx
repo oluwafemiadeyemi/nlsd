@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { RefreshCw, Users, Shield, CheckCircle, XCircle, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
@@ -17,6 +17,7 @@ interface SyncRun {
   manager_links_upserted: number;
   role_grants_upserted: number;
   roles_removed: number;
+  progress_status: string | null;
   error: string | null;
 }
 
@@ -32,12 +33,51 @@ const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle; className: strin
   running: { icon: RefreshCw, className: "text-blue-500", label: "Running" },
 };
 
-export function DirectorySyncPanel({ runs, activeUserCount, roleMappingCount }: DirectorySyncPanelProps) {
+export function DirectorySyncPanel({ runs: initialRuns, activeUserCount, roleMappingCount }: DirectorySyncPanelProps) {
   const [syncing, setSyncing] = useState(false);
+  const [progressStatus, setProgressStatus] = useState<string | null>(null);
+  const [runs, setRuns] = useState(initialRuns);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const router = useRouter();
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const pollProgress = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/directory-sync/status");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.runs) {
+        setRuns(data.runs);
+        const running = data.runs.find((r: SyncRun) => r.status === "running");
+        if (running) {
+          setProgressStatus(running.progress_status ?? "Syncing...");
+        } else {
+          setProgressStatus(null);
+          stopPolling();
+        }
+      }
+    } catch {
+      // ignore polling errors
+    }
+  }, [stopPolling]);
+
+  useEffect(() => {
+    return () => stopPolling();
+  }, [stopPolling]);
 
   async function handleSyncNow() {
     setSyncing(true);
+    setProgressStatus("Starting sync...");
+
+    // Start polling every 2 seconds
+    pollingRef.current = setInterval(pollProgress, 2000);
+
     try {
       const res = await fetch("/api/admin/directory-sync/run", {
         method: "POST",
@@ -63,6 +103,10 @@ export function DirectorySyncPanel({ runs, activeUserCount, roleMappingCount }: 
       toast({ title: "Sync failed", description: err.message, variant: "destructive" });
     } finally {
       setSyncing(false);
+      setProgressStatus(null);
+      stopPolling();
+      // Final poll to get latest data
+      await pollProgress();
     }
   }
 
@@ -85,6 +129,14 @@ export function DirectorySyncPanel({ runs, activeUserCount, roleMappingCount }: 
           {syncing ? "Syncing…" : "Sync Now"}
         </button>
       </div>
+
+      {/* Progress indicator */}
+      {syncing && progressStatus && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border border-blue-200 bg-blue-50 text-blue-800">
+          <RefreshCw className="w-4 h-4 animate-spin flex-shrink-0" />
+          <span className="text-sm font-medium">{progressStatus}</span>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4">
@@ -142,6 +194,9 @@ export function DirectorySyncPanel({ runs, activeUserCount, roleMappingCount }: 
                             <Icon className={cn("w-3.5 h-3.5", run.status === "running" && "animate-spin")} />
                             {cfg.label}
                           </span>
+                          {run.status === "running" && run.progress_status && (
+                            <div className="text-xs text-muted-foreground mt-0.5">{run.progress_status}</div>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                           {format(new Date(run.started_at), "MMM d, yyyy 'at' h:mm a")}

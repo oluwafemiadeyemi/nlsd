@@ -57,17 +57,16 @@ function chunk<T>(arr: T[], size: number): T[][] {
   );
 }
 
-export async function POST() {
-  // Diagnostic: log env var presence + partial values for verification
-  const srk = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  console.log(`[sync] URL: "${url.substring(0, 30)}..." (${url.length})`);
-  console.log(`[sync] ANON_KEY starts: "${anon.substring(0, 20)}..." (${anon.length})`);
-  console.log(`[sync] SERVICE_ROLE_KEY starts: "${srk.substring(0, 20)}..." ends: "...${srk.substring(srk.length - 10)}" (${srk.length})`);
+async function updateProgress(db: any, runId: string, message: string) {
+  await db
+    .from("directory_sync_runs")
+    .update({ progress_status: message } as any)
+    .eq("id", runId);
+}
 
+export async function POST() {
   const adminDb: any = createServiceClient();
-  let runId: string | null = null;
+  let runId: string = "";
 
   try {
     // Auth: cookie-based session
@@ -86,27 +85,28 @@ export async function POST() {
       return NextResponse.json({ error: "Admin role required" }, { status: 403 });
     }
 
-    console.log("[sync] Auth passed, inserting run record...");
     const { data: run, error: runErr } = await adminDb
       .from("directory_sync_runs")
-      .insert({ status: "running" } as any)
+      .insert({ status: "running", progress_status: "Authenticating..." } as any)
       .select("id")
       .single();
     if (runErr || !run) {
-      console.error("[sync] Run insert failed:", runErr?.message, runErr?.code);
       throw new Error(runErr?.message ?? "Failed to create run record");
     }
     runId = run.id;
 
     const appConfig = await getAppConfig();
 
+    await updateProgress(adminDb, runId, "Fetching group memberships...");
     const [adminMembers, financeMembers, managerMembers] = await Promise.all([
       fetchGroupMemberIds(appConfig.azureGroupAdmins),
       fetchGroupMemberIds(appConfig.azureGroupFinance),
       fetchGroupMemberIds(appConfig.azureGroupManagers),
     ]);
 
+    await updateProgress(adminDb, runId, "Fetching all users from Entra ID...");
     const users = await fetchAllUsers();
+    await updateProgress(adminDb, runId, `Fetched ${users.length} users. Looking up managers...`);
 
     const managerPairs = await mapWithConcurrency(
       users,
@@ -116,6 +116,7 @@ export async function POST() {
     const managerMap = new Map<string, string | null>();
     for (const p of managerPairs) managerMap.set(p.userAzureId, p.managerAzureId);
 
+    await updateProgress(adminDb, runId, `Matching ${users.length} users to existing profiles...`);
     const emails = users
       .map((u) => (u.mail ?? u.userPrincipalName ?? "").toLowerCase().trim())
       .filter(Boolean);
@@ -148,6 +149,7 @@ export async function POST() {
     }
 
     if (profileUpdates.length) {
+      await updateProgress(adminDb, runId, `Updating ${profileUpdates.length} profiles...`);
       const { error } = await adminDb
         .from("profiles")
         .upsert(profileUpdates, { onConflict: "id" });
@@ -172,6 +174,9 @@ export async function POST() {
     });
 
     let photosSynced = 0;
+    if (usersNeedingPhotos.length > 0) {
+      await updateProgress(adminDb, runId, `Syncing photos for ${usersNeedingPhotos.length} users...`);
+    }
     await mapWithConcurrency(usersNeedingPhotos, 5, async (u) => {
       try {
         const photoData = await graphGetBinary(
@@ -200,6 +205,7 @@ export async function POST() {
       }
     });
 
+    await updateProgress(adminDb, runId, "Syncing manager relationships...");
     // Upsert employee_manager relationships
     const managerRows: Array<{ employee_id: string; manager_id: string | null }> = [];
     for (const [userAzureId, mgrAzureId] of managerMap.entries()) {
@@ -215,6 +221,7 @@ export async function POST() {
       if (error) throw new Error(error.message);
     }
 
+    await updateProgress(adminDb, runId, "Syncing role assignments...");
     // Build desired roles from group membership
     const desiredRoles = new Map<string, Set<"admin" | "finance" | "manager">>();
     for (const [azureId, p] of profileByAzureId.entries()) {
@@ -268,6 +275,7 @@ export async function POST() {
         manager_links_upserted: managerRows.length,
         role_grants_upserted: roleRowsToUpsert.length,
         roles_removed: rolesRemoved,
+        progress_status: "Complete",
         error: null,
       } as any)
       .eq("id", runId);
