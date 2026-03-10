@@ -21,6 +21,7 @@ export default async function DirectoryPage() {
     const { data, error } = await adminDb
       .from("directory_members")
       .select("*")
+      .not("office_location", "is", null)
       .order("display_name")
       .range(from, from + PAGE_SIZE - 1);
     if (error || !data || data.length === 0) break;
@@ -28,15 +29,19 @@ export default async function DirectoryPage() {
     if (data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
-  // Sort alphabetically — nulls/empty last
-  allMembers.sort((a, b) => {
-    const na = (a.display_name ?? "").toLowerCase();
-    const nb = (b.display_name ?? "").toLowerCase();
-    if (!na && nb) return 1;
-    if (na && !nb) return -1;
-    return na.localeCompare(nb);
-  });
-  const members = allMembers;
+  // Filter out non-person entries (devices, packages, etc.) and sort A-Z
+  const members = allMembers
+    .filter((m) => {
+      const name = (m.display_name ?? "").trim();
+      if (!name) return false;
+      // Must start with a letter (excludes _Device_, package_, etc.)
+      return /^[a-zA-Z]/.test(name);
+    })
+    .sort((a, b) => {
+      const na = (a.display_name ?? "").toLowerCase();
+      const nb = (b.display_name ?? "").toLowerCase();
+      return na.localeCompare(nb);
+    });
 
   return (
     <div className="flex flex-col h-full">
