@@ -2,7 +2,7 @@ import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase/s
 import { redirect } from "next/navigation";
 import { TopBar } from "@/components/layout/TopBar";
 import Link from "next/link";
-import { Users, Share2, HeartPulse, CheckCircle, XCircle, Clock, ScrollText, Settings } from "lucide-react";
+import { Users, Share2, HeartPulse, CheckCircle, XCircle, Clock, ScrollText, Settings, Contact } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Admin" };
@@ -32,6 +32,23 @@ export default async function AdminPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Link
+              href="/admin/directory"
+              className="group p-5 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-start gap-4">
+                <div className="p-2.5 rounded-xl bg-violet-50 text-violet-600">
+                  <Contact className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm mb-1">Employee Directory</h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Browse all synced employees, search by name, department, or role, and view org relationships.
+                  </p>
+                </div>
+              </div>
+            </Link>
+
             <Link
               href="/admin/directory-sync"
               className="group p-5 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-sm transition-all"
