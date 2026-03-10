@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "./supabase";
 
-type AuditEntity = "timesheet" | "expense_report" | "sharepoint_sync" | "directory_sync";
+type AuditEntity = "timesheet" | "expense_report" | "sharepoint_sync" | "directory_sync" | "app_config";
 type AuditAction =
   | "create"
   | "update"

@@ -1,4 +1,4 @@
-import { getAppConfig } from "../../../../lib/config/appConfig";
+import { getAppConfig } from "../../config/appConfig";
 
 /** Acquire a Graph access token using client credentials flow. */
 export async function getGraphAccessToken(): Promise<string> {

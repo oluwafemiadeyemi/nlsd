@@ -1,5 +1,5 @@
 import { getGraphAccessToken } from "./graphToken";
-import { getAppConfig } from "../../../../lib/config/appConfig";
+import { getAppConfig } from "../../config/appConfig";
 
 /**
  * Upload a file to a SharePoint document library via Graph API.

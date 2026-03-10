@@ -1,27 +1,32 @@
-import type { Config, Context } from "@netlify/functions";
-import { z } from "zod";
-import { json, getBearerToken, requireMethod } from "./_lib/http";
-import { supabaseAdmin, supabaseUser } from "./_lib/supabase";
-import { writeAudit } from "./_lib/audit";
-import { assertCanManagerAct } from "./_lib/workflow";
-import { syncExpenseReportToSharePoint } from "./_lib/sharepoint/sync";
+/**
+ * POST /api/expenses/[id]/approve
+ * Authorization: Bearer <supabase_access_token>
+ *
+ * Approves an expense report and triggers SharePoint sync.
+ */
 
-export const config: Config = { path: "/api/expenses/:id/approve" };
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { getBearerToken } from "@/lib/server/http";
+import { supabaseAdmin, supabaseUser } from "@/lib/server/supabase";
+import { writeAudit } from "@/lib/server/audit";
+import { assertCanManagerAct } from "@/lib/server/workflow";
+import { syncExpenseReportToSharePoint } from "@/lib/server/sharepoint/sync";
 
 const BodySchema = z.object({
   managerComments: z.string().max(5000).optional(),
 });
 
-export default async function handler(req: Request, context: Context): Promise<Response> {
-  const methodError = requireMethod(req, "POST");
-  if (methodError) return methodError;
-
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const token = getBearerToken(req);
-    if (!token) return json(401, { error: "Missing Bearer token" });
+    if (!token) return NextResponse.json({ error: "Missing Bearer token" }, { status: 401 });
 
-    const reportId = context.params?.id;
-    if (!reportId) return json(400, { error: "Missing report id in path" });
+    const { id: reportId } = await params;
+    if (!reportId) return NextResponse.json({ error: "Missing report id in path" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
     const { managerComments } = BodySchema.parse(body);
@@ -33,7 +38,7 @@ export default async function handler(req: Request, context: Context): Promise<R
       .eq("id", reportId)
       .single();
 
-    if (rErr || !r) return json(404, { error: "Expense report not found" });
+    if (rErr || !r) return NextResponse.json({ error: "Expense report not found" }, { status: 404 });
 
     assertCanManagerAct(r.status as any);
 
@@ -50,7 +55,7 @@ export default async function handler(req: Request, context: Context): Promise<R
       .select()
       .single();
 
-    if (uErr) return json(400, { error: uErr.message });
+    if (uErr) return NextResponse.json({ error: uErr.message }, { status: 400 });
 
     await writeAudit({
       actorUserId: r.manager_id ?? null,
@@ -83,8 +88,8 @@ export default async function handler(req: Request, context: Context): Promise<R
       });
     }
 
-    return json(200, { ok: true, report: updated, sharepointSync });
+    return NextResponse.json({ ok: true, report: updated, sharepointSync });
   } catch (e: any) {
-    return json(400, { error: e?.message ?? "Unknown error" });
+    return NextResponse.json({ error: e?.message ?? "Unknown error" }, { status: 400 });
   }
 }

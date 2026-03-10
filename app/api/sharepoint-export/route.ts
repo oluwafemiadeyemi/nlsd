@@ -1,29 +1,18 @@
 /**
- * Netlify Function: sharepoint-export
- *
  * POST /api/sharepoint-export
  * Body: { type: "timesheet" | "expense", id: string }
+ * Header: x-workhub-secret: <GRAPH_SYNC_SECRET>
  *
  * Exports an approved timesheet or expense report to SharePoint as CSV.
  * Idempotent: uses a stable idempotency_key to prevent double-exports.
- *
- * Requires app permissions:
- *   - Sites.ReadWrite.All (or specific site permission)
- *   - Files.ReadWrite.All (or specific library permission)
  */
 
-import type { Config, Context } from "@netlify/functions";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createGraphClient, uploadToSharePoint } from "../../lib/msGraph/client";
-import { getAppConfig } from "../../lib/config/appConfig";
+import { createGraphClient, uploadToSharePoint } from "@/lib/msGraph/client";
+import { getAppConfig } from "@/lib/config/appConfig";
 import { timingSafeEqual } from "crypto";
 
-
-export const config: Config = {
-  path: "/api/sharepoint-export",
-};
-
-// day_index 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function safeCompare(a: string, b: string): boolean {
@@ -31,20 +20,16 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-export default async function handler(req: Request, _context: Context) {
-  if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
-  }
-
+export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-workhub-secret") ?? "";
   const expected = process.env.GRAPH_SYNC_SECRET ?? "";
   if (!secret || !expected || !safeCompare(secret, expected)) {
-    return new Response("Unauthorized", { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { type, id } = (await req.json()) as { type: "timesheet" | "expense"; id: string };
   if (!type || !id) {
-    return new Response("Missing type or id", { status: 400 });
+    return NextResponse.json({ error: "Missing type or id" }, { status: 400 });
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -73,10 +58,7 @@ export default async function handler(req: Request, _context: Context) {
     .single();
 
   if (existing?.last_status === "success") {
-    return new Response(
-      JSON.stringify({ ok: true, skipped: true, sync_key: idempotencyKey, ...existing }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    return NextResponse.json({ ok: true, skipped: true, sync_key: idempotencyKey, ...existing });
   }
 
   // Create or update pending log entry
@@ -100,7 +82,6 @@ export default async function handler(req: Request, _context: Context) {
       ({ csvContent, filename } = await buildExpenseCsv(supabase, id));
     }
 
-    // Upload to SharePoint
     const appConfig = await getAppConfig();
     const graph = await createGraphClient(appConfig);
     const { id: spItemId } = await uploadToSharePoint(
@@ -112,7 +93,6 @@ export default async function handler(req: Request, _context: Context) {
       csvContent
     );
 
-    // Mark success
     await supabase
       .from("sharepoint_sync")
       .update({
@@ -122,21 +102,14 @@ export default async function handler(req: Request, _context: Context) {
       } as any)
       .eq("sync_key", idempotencyKey);
 
-    return new Response(
-      JSON.stringify({ ok: true, filename, sharepointItemId: spItemId }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    return NextResponse.json({ ok: true, filename, sharepointItemId: spItemId });
   } catch (err: any) {
-    // Mark failed
     await supabase
       .from("sharepoint_sync")
       .update({ last_status: "failed", last_error: err.message } as any)
       .eq("sync_key", idempotencyKey);
 
-    return new Response(
-      JSON.stringify({ ok: false, error: err.message }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }
 

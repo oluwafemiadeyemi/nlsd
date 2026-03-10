@@ -1,7 +1,5 @@
 /**
- * Netlify Function: admin-directory-sync-run
- *
- * POST /api/admin/directory-sync-run
+ * POST /api/admin/directory-sync/run
  * Authorization: Bearer <supabase_access_token>
  *
  * Manually triggers a directory sync from Microsoft Entra ID:
@@ -12,16 +10,13 @@
  * - Logs the run to directory_sync_runs
  */
 
-import type { Context } from "@netlify/functions";
-import { json, getBearerToken, requireMethod } from "./_lib/http";
-import { supabaseAdmin, supabaseUser } from "./_lib/supabase";
-import { writeAudit } from "./_lib/audit";
-import { graphGet, graphGetAllPages, graphGetBinary } from "./_lib/graph/client";
-import { mapWithConcurrency } from "./_lib/graph/concurrency";
-import { getAppConfig } from "../../lib/config/appConfig";
-
-// No config.path — accessible at /.netlify/functions/admin-directory-sync-run
-// (config.path conflicts with @netlify/plugin-nextjs catch-all routing)
+import { NextRequest, NextResponse } from "next/server";
+import { getBearerToken } from "@/lib/server/http";
+import { supabaseAdmin, supabaseUser } from "@/lib/server/supabase";
+import { writeAudit } from "@/lib/server/audit";
+import { graphGet, graphGetAllPages, graphGetBinary } from "@/lib/server/graph/client";
+import { mapWithConcurrency } from "@/lib/server/graph/concurrency";
+import { getAppConfig } from "@/lib/config/appConfig";
 
 const MANAGER_LOOKUP_CONCURRENCY = Number(process.env.GRAPH_MANAGER_LOOKUP_CONCURRENCY ?? "10");
 
@@ -68,18 +63,14 @@ function chunk<T>(arr: T[], size: number): T[][] {
   );
 }
 
-export default async function handler(req: Request, _context: Context) {
-  const methodErr = requireMethod(req, "POST");
-  if (methodErr) return methodErr;
-
+export async function POST(req: NextRequest) {
   const adminDb = supabaseAdmin();
   let runId: string | null = null;
 
   try {
     const token = getBearerToken(req);
-    if (!token) return json(401, { error: "Missing Bearer token" });
+    if (!token) return NextResponse.json({ error: "Missing Bearer token" }, { status: 401 });
 
-    // Check caller has admin role (via user-context client, respects RLS)
     const userDb = supabaseUser(token);
     const { data: roleRows, error: roleErr } = await userDb
       .from("user_roles")
@@ -87,10 +78,9 @@ export default async function handler(req: Request, _context: Context) {
       .eq("role", "admin")
       .limit(1);
     if (roleErr || !roleRows || roleRows.length === 0) {
-      return json(403, { error: "Admin role required" });
+      return NextResponse.json({ error: "Admin role required" }, { status: 403 });
     }
 
-    // Create sync run record
     const { data: run, error: runErr } = await adminDb
       .from("directory_sync_runs")
       .insert({ status: "running" } as any)
@@ -99,20 +89,16 @@ export default async function handler(req: Request, _context: Context) {
     if (runErr || !run) throw new Error(runErr?.message ?? "Failed to create run record");
     runId = run.id;
 
-    // Load config from DB (falls back to env vars)
     const appConfig = await getAppConfig();
 
-    // 1) Fetch role groups in parallel
     const [adminMembers, financeMembers, managerMembers] = await Promise.all([
       fetchGroupMemberIds(appConfig.azureGroupAdmins),
       fetchGroupMemberIds(appConfig.azureGroupFinance),
       fetchGroupMemberIds(appConfig.azureGroupManagers),
     ]);
 
-    // 2) Fetch all users from Graph
     const users = await fetchAllUsers();
 
-    // 3) Concurrency-limited manager lookup
     const managerPairs = await mapWithConcurrency(
       users,
       MANAGER_LOOKUP_CONCURRENCY,
@@ -121,7 +107,6 @@ export default async function handler(req: Request, _context: Context) {
     const managerMap = new Map<string, string | null>();
     for (const p of managerPairs) managerMap.set(p.userAzureId, p.managerAzureId);
 
-    // 4) Map Graph users to existing profiles by email (chunked for large orgs)
     const emails = users
       .map((u) => (u.mail ?? u.userPrincipalName ?? "").toLowerCase().trim())
       .filter(Boolean);
@@ -136,13 +121,12 @@ export default async function handler(req: Request, _context: Context) {
       for (const p of data ?? []) profileByEmail.set((p.email ?? "").toLowerCase(), p as any);
     }
 
-    // 5) Build profile updates for matched users
     const profileUpdates: any[] = [];
     for (const u of users) {
       const email = (u.mail ?? u.userPrincipalName ?? "").toLowerCase().trim();
       if (!email) continue;
       const p = profileByEmail.get(email);
-      if (!p) continue; // not yet in Supabase — must SSO-login first
+      if (!p) continue;
 
       profileUpdates.push({
         id: p.id,
@@ -161,7 +145,6 @@ export default async function handler(req: Request, _context: Context) {
       if (error) throw new Error(error.message);
     }
 
-    // Reload profiles to get azure_user_id → profile.id map
     const { data: allProfiles, error: allProfilesErr } = await adminDb
       .from("profiles")
       .select("id, email, azure_user_id, avatar_url");
@@ -172,7 +155,7 @@ export default async function handler(req: Request, _context: Context) {
       if (p.azure_user_id) profileByAzureId.set(p.azure_user_id, { id: p.id, email: p.email ?? "", avatar_url: p.avatar_url ?? null });
     }
 
-    // 5b) Sync profile photos from Entra (skip users who already have an avatar)
+    // Sync profile photos from Entra
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
     const usersNeedingPhotos = users.filter((u) => {
       const p = profileByAzureId.get(u.id);
@@ -185,7 +168,7 @@ export default async function handler(req: Request, _context: Context) {
         const photoData = await graphGetBinary(
           `https://graph.microsoft.com/v1.0/users/${u.id}/photo/$value`
         );
-        if (!photoData) return; // user has no photo in Entra
+        if (!photoData) return;
 
         const p = profileByAzureId.get(u.id)!;
         const path = `${p.id}/avatar.jpg`;
@@ -208,7 +191,7 @@ export default async function handler(req: Request, _context: Context) {
       }
     });
 
-    // 6) Upsert employee_manager relationships
+    // Upsert employee_manager relationships
     const managerRows: Array<{ employee_id: string; manager_id: string | null }> = [];
     for (const [userAzureId, mgrAzureId] of managerMap.entries()) {
       const emp = profileByAzureId.get(userAzureId);
@@ -223,7 +206,7 @@ export default async function handler(req: Request, _context: Context) {
       if (error) throw new Error(error.message);
     }
 
-    // 7) Build desired roles from group membership
+    // Build desired roles from group membership
     const desiredRoles = new Map<string, Set<"admin" | "finance" | "manager">>();
     for (const [azureId, p] of profileByAzureId.entries()) {
       const s = new Set<"admin" | "finance" | "manager">();
@@ -244,7 +227,7 @@ export default async function handler(req: Request, _context: Context) {
       if (error) throw new Error(error.message);
     }
 
-    // 8) Strict removal: remove admin/finance/manager roles no longer in groups
+    // Strict removal: remove admin/finance/manager roles no longer in groups
     const { data: existingRoles, error: existingErr } = await adminDb
       .from("user_roles")
       .select("user_id, role")
@@ -266,7 +249,7 @@ export default async function handler(req: Request, _context: Context) {
       if (!error) rolesRemoved++;
     }
 
-    // 9) Mark run success
+    // Mark run success
     await adminDb
       .from("directory_sync_runs")
       .update({
@@ -289,7 +272,7 @@ export default async function handler(req: Request, _context: Context) {
       comment: `Users=${users.length}, profiles=${profileUpdates.length}, photos=${photosSynced}, managers=${managerRows.length}, roleGrants=${roleRowsToUpsert.length}, rolesRemoved=${rolesRemoved}`,
     });
 
-    return json(200, {
+    return NextResponse.json({
       ok: true,
       runId,
       usersFetched: users.length,
@@ -320,6 +303,6 @@ export default async function handler(req: Request, _context: Context) {
       comment: err?.message ?? "Directory sync failed",
     }).catch(() => null);
 
-    return json(500, { error: err?.message ?? "Directory sync failed", runId });
+    return NextResponse.json({ error: err?.message ?? "Directory sync failed", runId }, { status: 500 });
   }
 }

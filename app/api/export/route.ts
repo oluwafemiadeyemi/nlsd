@@ -28,9 +28,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Item must be approved before export" }, { status: 422 });
   }
 
-  // Call the Netlify function
-  const netlifyFnUrl = `${process.env.NEXT_PUBLIC_APP_URL}/.netlify/functions/sharepoint-export`;
-  const response = await fetch(netlifyFnUrl, {
+  // Call the SharePoint export API route
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/sharepoint-export`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

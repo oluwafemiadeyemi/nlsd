@@ -1,22 +1,18 @@
 /**
- * Netlify Function: admin-directory-health
- *
  * GET /api/admin/directory-health?limit=50
  * Authorization: Bearer <supabase_access_token>
  *
  * Returns directory health metrics and issue lists for the admin dashboard.
  */
 
-import type { Context } from "@netlify/functions";
-import { json, getBearerToken } from "./_lib/http";
-import { supabaseUser } from "./_lib/supabase";
+import { NextRequest, NextResponse } from "next/server";
+import { getBearerToken } from "@/lib/server/http";
+import { supabaseUser } from "@/lib/server/supabase";
 
-// No config.path — accessible at /.netlify/functions/admin-directory-health
-
-export default async function handler(req: Request, _context: Context) {
+export async function GET(req: NextRequest) {
   try {
     const token = getBearerToken(req);
-    if (!token) return json(401, { error: "Missing Bearer token" });
+    if (!token) return NextResponse.json({ error: "Missing Bearer token" }, { status: 401 });
 
     const db = supabaseUser(token);
 
@@ -25,10 +21,10 @@ export default async function handler(req: Request, _context: Context) {
       .select("role")
       .in("role", ["admin", "finance"]);
     if (!roles || roles.length === 0) {
-      return json(403, { error: "Admin or Finance role required" });
+      return NextResponse.json({ error: "Admin or Finance role required" }, { status: 403 });
     }
 
-    const limit = Math.min(Number(new URL(req.url).searchParams.get("limit") ?? "50"), 200);
+    const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? "50"), 200);
 
     const [metricsRes, missingIdentityRes, missingManagerRes, dupEmpNoRes, mgrNoRoleRes] =
       await Promise.all([
@@ -39,9 +35,9 @@ export default async function handler(req: Request, _context: Context) {
         db.from("v_directory_managers_without_role").select("*").order("direct_reports_count", { ascending: false }).limit(limit),
       ]);
 
-    if (metricsRes.error) return json(400, { error: metricsRes.error.message });
+    if (metricsRes.error) return NextResponse.json({ error: metricsRes.error.message }, { status: 400 });
 
-    return json(200, {
+    return NextResponse.json({
       ok: true,
       metrics: metricsRes.data,
       lists: {
@@ -52,6 +48,6 @@ export default async function handler(req: Request, _context: Context) {
       },
     });
   } catch (err: any) {
-    return json(500, { error: err?.message ?? "Failed to load directory health" });
+    return NextResponse.json({ error: err?.message ?? "Failed to load directory health" }, { status: 500 });
   }
 }

@@ -1,6 +1,4 @@
 /**
- * Netlify Function: admin-reroute-submitted-approvals
- *
  * POST /api/admin/reroute-submitted-approvals?override=false
  * Authorization: Bearer <supabase_access_token>
  *
@@ -13,27 +11,22 @@
  * Never touches approved/rejected records to preserve audit integrity.
  */
 
-import type { Context } from "@netlify/functions";
-import { json, getBearerToken, requireMethod } from "./_lib/http";
-import { supabaseAdmin, supabaseUser } from "./_lib/supabase";
-import { writeAudit } from "./_lib/audit";
+import { NextRequest, NextResponse } from "next/server";
+import { getBearerToken } from "@/lib/server/http";
+import { supabaseAdmin, supabaseUser } from "@/lib/server/supabase";
+import { writeAudit } from "@/lib/server/audit";
 
-// No config.path — accessible at /.netlify/functions/admin-reroute-submitted-approvals
-
-export default async function handler(req: Request, _context: Context) {
-  const methodErr = requireMethod(req, "POST");
-  if (methodErr) return methodErr;
-
+export async function POST(req: NextRequest) {
   try {
     const token = getBearerToken(req);
-    if (!token) return json(401, { error: "Missing Bearer token" });
+    if (!token) return NextResponse.json({ error: "Missing Bearer token" }, { status: 401 });
 
     const userDb = supabaseUser(token);
     const { data: roleRows } = await userDb.from("user_roles").select("role").eq("role", "admin").limit(1);
-    if (!roleRows || roleRows.length === 0) return json(403, { error: "Admin role required" });
+    if (!roleRows || roleRows.length === 0) return NextResponse.json({ error: "Admin role required" }, { status: 403 });
 
     const overrideExisting =
-      (new URL(req.url).searchParams.get("override") ?? "false") === "true";
+      (req.nextUrl.searchParams.get("override") ?? "false") === "true";
 
     const db = supabaseAdmin();
 
@@ -41,7 +34,7 @@ export default async function handler(req: Request, _context: Context) {
     const { data: mapRows, error: mapErr } = await db
       .from("employee_manager")
       .select("employee_id, manager_id");
-    if (mapErr) return json(400, { error: mapErr.message });
+    if (mapErr) return NextResponse.json({ error: mapErr.message }, { status: 400 });
 
     const managerByEmployee = new Map<string, string | null>();
     for (const r of mapRows ?? []) managerByEmployee.set(r.employee_id, r.manager_id);
@@ -51,7 +44,7 @@ export default async function handler(req: Request, _context: Context) {
       .from("timesheets")
       .select("id, employee_id, manager_id")
       .eq("status", "submitted");
-    if (tsErr) return json(400, { error: tsErr.message });
+    if (tsErr) return NextResponse.json({ error: tsErr.message }, { status: 400 });
 
     let timesheetsRerouted = 0;
     for (const t of ts ?? []) {
@@ -69,7 +62,7 @@ export default async function handler(req: Request, _context: Context) {
       .from("expense_reports")
       .select("id, employee_id, manager_id")
       .eq("status", "submitted");
-    if (exErr) return json(400, { error: exErr.message });
+    if (exErr) return NextResponse.json({ error: exErr.message }, { status: 400 });
 
     let expensesRerouted = 0;
     for (const r of ex ?? []) {
@@ -90,13 +83,13 @@ export default async function handler(req: Request, _context: Context) {
       comment: `Rerouted submitted approvals. Timesheets=${timesheetsRerouted}, Expenses=${expensesRerouted}, override=${overrideExisting}`,
     });
 
-    return json(200, {
+    return NextResponse.json({
       ok: true,
       overrideExisting,
       timesheetsRerouted,
       expensesRerouted,
     });
   } catch (err: any) {
-    return json(500, { error: err?.message ?? "Failed to reroute submissions" });
+    return NextResponse.json({ error: err?.message ?? "Failed to reroute submissions" }, { status: 500 });
   }
 }
