@@ -30,8 +30,8 @@ async function fetchAllUsers(): Promise<GraphUser[]> {
     "id", "displayName", "mail", "userPrincipalName",
     "jobTitle", "department", "officeLocation", "employeeId",
   ].join(",");
-  // Filter to only real person accounts: members (not guests), enabled, with a mailbox
-  const filter = "userType eq 'Member' and accountEnabled eq true";
+  // Filter to only real person accounts: members (not guests), enabled, exclude students
+  const filter = "userType eq 'Member' and accountEnabled eq true and jobTitle ne 'Student'";
   const url = `https://graph.microsoft.com/v1.0/users?$select=${encodeURIComponent(select)}&$filter=${encodeURIComponent(filter)}&$top=999`;
   const allUsers = await graphGetAllPages<{ value: GraphUser[]; "@odata.nextLink"?: string }>(url) as GraphUser[];
   // Extra safety: exclude entries with no displayName AND no email (device/system objects)
