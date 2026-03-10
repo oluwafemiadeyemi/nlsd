@@ -1,4 +1,4 @@
-import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase/server";
+import { createServerSupabaseClient, getCurrentUserRole, createServiceClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { OverviewTabsCard } from "@/components/dashboard/OverviewTabsCard";
 import type { Metadata } from "next";
@@ -46,23 +46,16 @@ export default async function TimesheetsPage() {
   const realExpenses = exRes.data ?? [];
   const newExHref = `/expenses/new?year=${year}&week=${String(week).padStart(2, "0")}`;
 
-  // Fetch managers from directory (users with manager/admin role)
-  const { data: managerRoles } = await supabase
-    .from("user_roles")
-    .select("user_id")
-    .in("role", ["manager", "admin"]);
-  const managerUserIds = (managerRoles ?? []).map((r: any) => r.user_id);
-  let managers: { id: string; display_name: string }[] = [];
-  if (managerUserIds.length > 0) {
-    const { data: mgrProfiles } = await supabase
-      .from("profiles")
-      .select("id, display_name")
-      .in("id", managerUserIds)
-      .order("display_name");
-    managers = (mgrProfiles ?? [])
-      .filter((p: any) => p.display_name)
-      .map((p: any) => ({ id: p.id, display_name: p.display_name }));
-  }
+  // Fetch all organisation employees from directory for manager search
+  const adminDb: any = createServiceClient();
+  const { data: dirMembers } = await adminDb
+    .from("directory_members")
+    .select("azure_user_id, display_name, profile_id")
+    .not("display_name", "is", null)
+    .order("display_name");
+  const managers = (dirMembers ?? [])
+    .filter((m: any) => m.display_name)
+    .map((m: any) => ({ id: m.profile_id ?? m.azure_user_id, display_name: m.display_name }));
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">

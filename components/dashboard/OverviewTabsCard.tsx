@@ -104,7 +104,7 @@ function ManagerCombobox({ managers, value, onChange }: { managers: ManagerOptio
         <input
           ref={inputRef}
           type="text"
-          placeholder="Search manager…"
+          placeholder="Search by name…"
           value={open ? query : (selected?.display_name ?? "")}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => { setOpen(true); setQuery(""); }}
