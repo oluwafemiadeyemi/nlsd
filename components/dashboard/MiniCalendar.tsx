@@ -227,7 +227,7 @@ export function MiniCalendar({ userId }: Props) {
       const [tsRes, exRes]: any[] = await Promise.all([
         (supabase.from as any)("timesheets")
           .select("id,year,month,week_number,timesheet_rows(sun,mon,tue,wed,thu,fri,sat)")
-          .eq("employee_id", userId).eq("year", y).eq("month", m),
+          .eq("employee_id", userId).eq("year", y).eq("month", m).gt("week_number", 0),
         (supabase.from as any)("expense_entries")
           .select("entry_date,mileage_cost,lodging_amount,breakfast_amount,lunch_amount,dinner_amount,other_amount,expense_reports(id,destination)")
           .gte("entry_date", s0).lte("entry_date", s1),

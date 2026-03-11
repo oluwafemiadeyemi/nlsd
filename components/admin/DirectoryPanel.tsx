@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Users, Building2, MapPin, Search } from "lucide-react";
+import Link from "next/link";
 
 type DirectoryMember = {
   id: string;
@@ -159,7 +160,7 @@ export default function DirectoryPanel({ members }: { members: DirectoryMember[]
                 ? nameByAzureId.get(m.manager_azure_id) ?? "—"
                 : "—";
               return (
-                <tr key={m.id} className="hover:bg-accent/30 transition-colors">
+                <tr key={m.id} className={`hover:bg-accent/30 transition-colors ${m.profile_id ? "cursor-pointer" : ""}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
@@ -169,7 +170,13 @@ export default function DirectoryPanel({ members }: { members: DirectoryMember[]
                       </div>
                       <div>
                         <div className="font-medium">
-                          {m.display_name ?? "—"}
+                          {m.profile_id ? (
+                            <Link href={`/admin/employees/${m.profile_id}`} className="hover:text-primary hover:underline">
+                              {m.display_name ?? "—"}
+                            </Link>
+                          ) : (
+                            m.display_name ?? "—"
+                          )}
                           {m.profile_id && (
                             <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" title="Signed into app" />
                           )}

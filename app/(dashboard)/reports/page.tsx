@@ -22,7 +22,8 @@ export default async function ReportsPage() {
     supabase
       .from("timesheets")
       .select("id, status, year, week_number, timesheet_rows(weekly_total)")
-      .eq("year", currentYear),
+      .eq("year", currentYear)
+      .gt("week_number", 0),
     supabase
       .from("expense_reports")
       .select("id, status, year, week_number, expense_entries(mileage_cost, lodging_amount, breakfast_amount, lunch_amount, dinner_amount, other_amount)")

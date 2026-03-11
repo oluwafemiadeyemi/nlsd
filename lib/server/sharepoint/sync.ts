@@ -38,14 +38,34 @@ export async function syncTimesheetToSharePoint(timesheetId: string): Promise<vo
     .eq("id", t.employee_id)
     .single();
 
-  const { data: rows } = await db
-    .from("timesheet_rows")
-    .select(`
-      billing_type_id, project_id, sun, mon, tue, wed, thu, fri, sat,
-      project:projects!project_id(code, title),
-      billing_type:billing_types!billing_type_id(name)
-    `)
-    .eq("timesheet_id", timesheetId);
+  let rows: any[] | null = null;
+  if (t.week_number === 0) {
+    const { data: weeklyRows } = await db
+      .from("timesheets")
+      .select(`
+        timesheet_rows(
+          billing_type_id, project_id, sun, mon, tue, wed, thu, fri, sat,
+          project:projects!project_id(code, title),
+          billing_type:billing_types!billing_type_id(name)
+        )
+      `)
+      .eq("employee_id", t.employee_id)
+      .eq("year", t.year)
+      .eq("month", t.month)
+      .gt("week_number", 0)
+      .order("week_number");
+    rows = (weeklyRows ?? []).flatMap((item: any) => item.timesheet_rows ?? []);
+  } else {
+    const { data } = await db
+      .from("timesheet_rows")
+      .select(`
+        billing_type_id, project_id, sun, mon, tue, wed, thu, fri, sat,
+        project:projects!project_id(code, title),
+        billing_type:billing_types!billing_type_id(name)
+      `)
+      .eq("timesheet_id", timesheetId);
+    rows = data ?? [];
+  }
 
   const csvRows = (rows ?? []).map((r: any) => ({
     timesheet_id: t.id,
@@ -95,7 +115,7 @@ export async function syncExpenseReportToSharePoint(reportId: string): Promise<v
 
   const { data: r, error: rErr } = await db
     .from("expense_reports")
-    .select("id, employee_id, year, week_number, week_beginning_date, destination, status, submitted_at, approved_at")
+    .select("id, employee_id, year, month, week_number, week_beginning_date, destination, status, submitted_at, approved_at")
     .eq("id", reportId)
     .single();
 
@@ -129,6 +149,7 @@ export async function syncExpenseReportToSharePoint(reportId: string): Promise<v
       employee_name: profile?.display_name ?? "",
       department: profile?.department ?? "",
       year: r.year,
+      month: r.month,
       week_number: r.week_number,
       week_beginning: r.week_beginning_date ?? "",
       destination: r.destination ?? "",

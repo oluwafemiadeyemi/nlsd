@@ -1,12 +1,13 @@
 import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase/server";
 import { fetchDepartmentManagers, resolveDefaultManager } from "@/lib/server/managers";
 import Link from "next/link";
-import { format, getISOWeek } from "date-fns";
+import { format } from "date-fns";
 import type { Metadata } from "next";
 import { ProfileImageUpload } from "@/components/dashboard/ProfileImageUpload";
 import { MyRequestsCard } from "@/components/dashboard/MyRequestsCard";
 import { OverviewTabsCard } from "@/components/dashboard/OverviewTabsCard";
 import { HoursChart } from "@/components/dashboard/HoursChart";
+import { currentExpensePeriod, formatExpensePeriodLabel } from "@/domain/expenses/period";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -103,7 +104,7 @@ export default async function DashboardPage() {
 
   const role = await getCurrentUserRole();
   const isApprover = role === "manager" || role === "admin" || role === "finance";
-  const isoWeek = String(getISOWeek(new Date())).padStart(2, "0");
+  const expensePeriod = currentExpensePeriod(new Date());
   // Always fetch — used in live mode or as fallback
   const [tsRes, exRes, profRes, wkExRes, pendingExRes, pendingTsRes, monthlyTsRes, pendingLeaveRes]: any[] = await Promise.all([
     supabase.from("timesheets")
@@ -112,19 +113,19 @@ export default async function DashboardPage() {
       .order("year",{ascending:false}).order("month",{ascending:false}).order("week_number",{ascending:false})
       .limit(6),
     supabase.from("expense_reports")
-      .select("id,year,week_number,status,created_at")
+      .select("id,year,month,week_number,status,created_at")
       .eq("employee_id", user.id)
-      .order("year",{ascending:false}).order("week_number",{ascending:false})
+      .order("year",{ascending:false}).order("month",{ascending:false}).order("week_number",{ascending:false})
       .limit(6),
     supabase.from("profiles")
       .select("display_name,email,avatar_url,department,job_title")
       .eq("id", user.id).single(),
     supabase.from("expense_reports")
       .select("expense_entries(mileage_cost,lodging_amount,breakfast_amount,lunch_amount,dinner_amount,other_amount)")
-      .eq("employee_id",user.id).eq("year",year).eq("week_number",isoWeek),
+      .eq("employee_id",user.id).eq("year",expensePeriod.year).eq("month", expensePeriod.month).eq("week_number",expensePeriod.weekNumber),
     isApprover
       ? supabase.from("expense_reports")
-          .select("id, year, week_number, submitted_at, employee:profiles!employee_id(display_name)")
+          .select("id, year, month, week_number, submitted_at, employee:profiles!employee_id(display_name)")
           .eq("status", "submitted")
           .order("submitted_at")
           .limit(5)
@@ -133,6 +134,7 @@ export default async function DashboardPage() {
       ? supabase.from("timesheets")
           .select("id, year, month, week_number, submitted_at, employee:profiles!employee_id(display_name)")
           .eq("status", "submitted")
+          .eq("week_number", 0)
           .order("submitted_at")
           .limit(5)
       : Promise.resolve({ data: [] }),
@@ -140,7 +142,8 @@ export default async function DashboardPage() {
       .select("month, timesheet_rows(weekly_total)")
       .eq("employee_id", user.id)
       .eq("year", year)
-      .neq("status", "draft"),
+      .neq("status", "draft")
+      .gt("week_number", 0),
     isApprover
       ? supabase.from("leave_requests")
           .select("id, leave_type, start_date, end_date, total_hours, submitted_at, employee:profiles!employee_id(display_name)")
@@ -173,7 +176,7 @@ export default async function DashboardPage() {
 
   const weeklyExpenses = isDemoMode ? DEMO.monthlyExpenses : weeklyExpenseTotal;
 
-  const newExHref = `/expenses/new?year=${year}&week=${String(week).padStart(2,"0")}`;
+  const newExHref = `/expenses/new?year=${expensePeriod.year}&month=${expensePeriod.month}&week=${expensePeriod.weekNumber}`;
 
   // Expense breakdown — live categories, filtered to non-zero
   const liveExpBreakdown = [
@@ -204,14 +207,14 @@ export default async function DashboardPage() {
     ...pendingEx.map((e: any) => ({
       id: e.id, type: "expense" as const,
       name: (e.employee as any)?.display_name ?? "—",
-      period: `${e.year} Wk${e.week_number}`,
+      period: formatExpensePeriodLabel({ year: e.year, month: e.month, weekNumber: e.week_number }),
       submittedAt: e.submitted_at as string | null,
       href: `/approvals/${e.id}?type=expense`,
     })),
     ...pendingTs.map((t: any) => ({
       id: t.id, type: "timesheet" as const,
       name: (t.employee as any)?.display_name ?? "—",
-      period: `${MONTH_NAMES[t.month ?? 1]} Wk${t.week_number}`,
+      period: `${MONTH_NAMES[t.month ?? 1]} ${t.year}`,
       submittedAt: t.submitted_at as string | null,
       href: `/approvals/${t.id}?type=timesheet`,
     })),
@@ -232,12 +235,12 @@ export default async function DashboardPage() {
   const requests = isDemoMode ? DEMO.requests : [
     ...realTimesheets.slice(0, 3).map((t:any) => ({
       id: t.id, kind: "timesheet", label: "Time Sheet",
-      sub: `${MONTH_NAMES[t.month ?? 1]} Wk${t.week_number}`,
+      sub: t.week_number === 0 ? `${MONTH_NAMES[t.month ?? 1]}` : `${MONTH_NAMES[t.month ?? 1]} Wk${t.week_number}`,
       dot: dotForStatus(t.status),
     })),
     ...realExpenses.slice(0, 2).map((e:any) => ({
       id: e.id, kind: "expense", label: "Expense",
-      sub: `${e.year} Wk${e.week_number}`,
+      sub: formatExpensePeriodLabel({ year: e.year, month: e.month, weekNumber: e.week_number }),
       dot: dotForStatus(e.status),
     })),
   ];
@@ -405,7 +408,9 @@ export default async function DashboardPage() {
               <div className="flex items-start justify-between mb-3">
                 <div className="flex flex-col mt-1">
                   <span className="text-[15px] font-semibold text-gray-700">Expense</span>
-                  <span className="text-[11px] text-gray-400 font-medium">Week {parseInt(isoWeek)}, {year}</span>
+                  <span className="text-[11px] text-gray-400 font-medium">
+                    {formatExpensePeriodLabel(expensePeriod)}
+                  </span>
                 </div>
                 <span className="text-[38px] font-extrabold text-gray-900 leading-none tracking-tight">
                   ${isDemoMode ? DEMO.monthlyExpenses : weeklyExpenses.toFixed(0)}
@@ -460,7 +465,7 @@ export default async function DashboardPage() {
                     const clr = [["bg-amber-100","text-amber-700"],["bg-pink-100","text-pink-600"],["bg-sky-100","text-sky-600"]][i] ?? ["bg-gray-100","text-gray-600"];
                     return (
                       <Link key={ex.id} href={`/expenses/${ex.id}`} className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${clr[0]} ${clr[1]}`}>
-                        Wk{ex.week_number}
+                        {formatExpensePeriodLabel({ year: ex.year, month: ex.month, weekNumber: ex.week_number })}
                       </Link>
                     );
                   })}

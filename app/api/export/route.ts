@@ -28,8 +28,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Item must be approved before export" }, { status: 422 });
   }
 
-  // Call the SharePoint export API route
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  // Call the SharePoint export Netlify function.
+  // Use request origin for same-host calls; fall back to NEXT_PUBLIC_APP_URL or URL env.
+  const baseUrl =
+    req.headers.get("x-forwarded-host")
+      ? `${req.headers.get("x-forwarded-proto") || "https"}://${req.headers.get("x-forwarded-host")}`
+      : process.env.NEXT_PUBLIC_APP_URL || process.env.URL || "http://localhost:3000";
   const response = await fetch(`${baseUrl}/api/sharepoint-export`, {
     method: "POST",
     headers: {

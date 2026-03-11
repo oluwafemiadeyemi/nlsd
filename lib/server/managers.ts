@@ -30,9 +30,11 @@ export async function fetchDepartmentManagers(userDept: string): Promise<{
     if (data.length < 1000) break;
     from += 1000;
   }
+  // Only include members who have an app profile (profile_id is not null).
+  // This ensures manager_id FK to profiles.id will never fail.
   const managers = allDir
-    .filter((m: any) => m.display_name && /^[a-zA-Z]/.test(m.display_name))
-    .map((m: any) => ({ id: m.profile_id ?? m.azure_user_id, display_name: m.display_name }));
+    .filter((m: any) => m.display_name && /^[a-zA-Z]/.test(m.display_name) && m.profile_id)
+    .map((m: any) => ({ id: m.profile_id, display_name: m.display_name }));
   return { managers, allDir };
 }
 
@@ -61,7 +63,7 @@ export async function resolveDefaultManager(
     .maybeSingle();
   if (myDir?.manager_azure_id) {
     const mgr = allDir.find((m: any) => m.azure_user_id === myDir.manager_azure_id);
-    if (mgr) return mgr.profile_id ?? mgr.azure_user_id;
+    if (mgr?.profile_id) return mgr.profile_id;
   }
   return "";
 }

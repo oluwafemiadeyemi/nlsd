@@ -24,6 +24,21 @@ interface ApprovalDetailClientProps {
 
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES = [
+  "",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 
 export function ApprovalDetailClient({
   type,
@@ -273,26 +288,11 @@ export function ApprovalDetailClient({
 /* ─── Timesheet Summary ─── */
 function TimesheetDetail({ data }: { data: any }) {
   const rows = data.timesheet_rows ?? [];
-  const monthNames = [
-    "",
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
 
   const period =
-    data.week_number <= 1
-      ? `${monthNames[data.month]} ${data.year}`
-      : `Week ${data.week_number}, ${monthNames[data.month]} ${data.year}`;
+    data.week_number === 0
+      ? `${MONTH_NAMES[data.month]} ${data.year}`
+      : `Week ${data.week_number}, ${MONTH_NAMES[data.month]} ${data.year}`;
 
   // Calculate daily totals
   const dailyTotals = DAYS.map((day) =>
@@ -444,7 +444,7 @@ function ExpenseDetail({ data }: { data: any }) {
         <div>
           <span className="text-muted-foreground">Period: </span>
           <span className="font-medium">
-            Week {data.week_number}, {data.year}
+            Week {data.week_number}, {MONTH_NAMES[data.month]} {data.year}
           </span>
         </div>
         {data.destination && (

@@ -133,6 +133,24 @@ async function buildTimesheetCsv(supabase: any, id: string) {
   if (!ts) throw new Error(`Timesheet ${id} not found`);
 
   const t = ts as any;
+  if (t.week_number === 0) {
+    const { data: weeklyRows }: any = await supabase
+      .from("timesheets")
+      .select(`
+        timesheet_rows (
+          *,
+          project:projects!project_id(code, title),
+          billing_type:billing_types!billing_type_id(name)
+        )
+      `)
+      .eq("employee_id", t.employee_id)
+      .eq("year", t.year)
+      .eq("month", t.month)
+      .gt("week_number", 0)
+      .order("week_number");
+
+    t.timesheet_rows = (weeklyRows ?? []).flatMap((row: any) => row.timesheet_rows ?? []);
+  }
   const filename = `timesheet_${t.employee.email.replace("@", "_at_")}_${t.year}_m${t.month}_w${t.week_number}.csv`;
 
   const headers = [

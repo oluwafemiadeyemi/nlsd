@@ -181,6 +181,7 @@ export interface Database {
           status: WorkStatus;
           employee_notes: string | null;
           manager_comments: string | null;
+          draft_payload: Record<string, unknown> | null;
           submitted_at: string | null;
           approved_at: string | null;
           rejected_at: string | null;
@@ -197,6 +198,7 @@ export interface Database {
           status?: WorkStatus;
           employee_notes?: string | null;
           manager_comments?: string | null;
+          draft_payload?: Record<string, unknown> | null;
           submitted_at?: string | null;
           approved_at?: string | null;
           rejected_at?: string | null;
@@ -255,6 +257,7 @@ export interface Database {
           employee_id: string;
           manager_id: string | null;
           year: number;
+          month: number;
           week_number: string;
           week_beginning_date: string;
           destination: string | null;
@@ -272,6 +275,7 @@ export interface Database {
           employee_id: string;
           manager_id?: string | null;
           year: number;
+          month: number;
           week_number: string;
           week_beginning_date: string;
           destination?: string | null;

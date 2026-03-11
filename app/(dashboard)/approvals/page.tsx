@@ -21,7 +21,7 @@ export default async function ApprovalsPage() {
     supabase
       .from("expense_reports")
       .select(`
-        id, year, week_number, destination, status, submitted_at,
+        id, year, month, week_number, destination, status, submitted_at,
         employee:profiles!employee_id(id, display_name, email, department),
         expense_entries(mileage_cost, lodging_amount, breakfast_amount, lunch_amount, dinner_amount, other_amount)
       `)
@@ -30,11 +30,11 @@ export default async function ApprovalsPage() {
     supabase
       .from("timesheets")
       .select(`
-        id, year, month, week_number, status, submitted_at,
+        id, employee_id, year, month, week_number, status, submitted_at,
         employee:profiles!employee_id(id, display_name, email, department),
-        timesheet_rows(weekly_total)
       `)
       .in("status", exStatuses)
+      .eq("week_number", 0)
       .order("submitted_at"),
     supabase
       .from("leave_requests")
@@ -57,7 +57,7 @@ export default async function ApprovalsPage() {
     return {
       id: e.id,
       type: "expense" as const,
-      period: `Week ${e.week_number}, ${e.year}`,
+      period: `Week ${e.week_number}, ${monthName(e.month)} ${e.year}`,
       status: e.status,
       amountLabel: `$${total.toFixed(2)}`,
       submittedAt: e.submitted_at,
@@ -66,8 +66,31 @@ export default async function ApprovalsPage() {
     };
   });
 
-  const timesheets = (tsResult.data ?? []).map((t: any) => {
-    const totalHours = (t.timesheet_rows ?? []).reduce((s: number, r: any) => s + (r.weekly_total ?? 0), 0);
+  const submittedMonthTimesheets = tsResult.data ?? [];
+  const employeeIds = [...new Set(submittedMonthTimesheets.map((item: any) => item.employee_id))];
+  const years = [...new Set(submittedMonthTimesheets.map((item: any) => item.year))];
+  const months = [...new Set(submittedMonthTimesheets.map((item: any) => item.month))];
+
+  const { data: weeklyTimesheetRows }: any =
+    submittedMonthTimesheets.length === 0
+      ? { data: [] }
+      : await supabase
+          .from("timesheets")
+          .select("employee_id, year, month, week_number, timesheet_rows(weekly_total)")
+          .in("employee_id", employeeIds)
+          .in("year", years)
+          .in("month", months)
+          .gt("week_number", 0);
+
+  const totalsByMonthKey = new Map<string, number>();
+  for (const weekly of weeklyTimesheetRows ?? []) {
+    const key = `${weekly.employee_id}-${weekly.year}-${weekly.month}`;
+    const totalHours = (weekly.timesheet_rows ?? []).reduce((sum: number, row: any) => sum + (row.weekly_total ?? 0), 0);
+    totalsByMonthKey.set(key, (totalsByMonthKey.get(key) ?? 0) + totalHours);
+  }
+
+  const timesheets = submittedMonthTimesheets.map((t: any) => {
+    const totalHours = totalsByMonthKey.get(`${t.employee_id}-${t.year}-${t.month}`) ?? 0;
     const period = t.week_number === 0
       ? `${monthName(t.month)} ${t.year}`
       : `Week ${t.week_number}, ${monthName(t.month)} ${t.year}`;

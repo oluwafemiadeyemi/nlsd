@@ -146,13 +146,13 @@ export function LeaveRequestClient({
         if (error) throw error;
       }
 
-      // Audit log
+      // Audit log (best-effort; server routes handle approve/reject/recall auditing)
       await (supabase.from as any)("audit_log").insert({
         actor_user_id: userId,
         entity_type: "leave_request",
         entity_id: id,
         action: newStatus === "submitted" ? "submit" : leaveId ? "update" : "create",
-      });
+      }).then(({ error }: any) => { if (error) console.warn("Audit write failed:", error.message); });
 
       if (newStatus) setStatus(newStatus);
       toast({
@@ -220,18 +220,9 @@ export function LeaveRequestClient({
     if (!leaveId) return;
     setSaving(true);
     try {
-      const { error: recallErr } = await (supabase.from as any)("leave_requests")
-        .update({ status: "draft", submitted_at: null })
-        .eq("id", leaveId);
-      if (recallErr) throw recallErr;
-
-      await (supabase.from as any)("audit_log").insert({
-        actor_user_id: userId,
-        entity_type: "leave_request",
-        entity_id: leaveId,
-        action: "update",
-        comment: "Recalled to draft",
-      });
+      const res = await fetch(`/api/leave/${leaveId}/recall`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Recall failed");
 
       setStatus("draft");
       toast({ title: "Leave request recalled to draft" });

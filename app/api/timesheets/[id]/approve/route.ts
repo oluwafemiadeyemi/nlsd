@@ -36,7 +36,7 @@ export async function POST(
 
     const { data: ts, error: tsErr }: any = await supabase
       .from("timesheets")
-      .select("id, employee_id, manager_id, status")
+      .select("id, employee_id, manager_id, status, year, month, week_number")
       .eq("id", tsId)
       .single();
 
@@ -46,12 +46,13 @@ export async function POST(
 
     const newStatus = role === "manager" ? "manager_approved" : "approved";
     const adminDb: any = createServiceClient();
+    const approvedAt = new Date().toISOString();
     const { data: updated, error: uErr } = await adminDb
       .from("timesheets")
       .update({
         status: newStatus,
         manager_comments: managerComments ?? null,
-        approved_at: new Date().toISOString(),
+        approved_at: approvedAt,
         rejected_at: null,
       })
       .eq("id", tsId)
@@ -59,6 +60,23 @@ export async function POST(
       .single();
 
     if (uErr) return NextResponse.json({ error: uErr.message }, { status: 400 });
+
+    if (ts.week_number === 0) {
+      const { error: weekErr } = await adminDb
+        .from("timesheets")
+        .update({
+          status: newStatus,
+          approved_at: approvedAt,
+          rejected_at: null,
+        })
+        .eq("employee_id", ts.employee_id)
+        .eq("year", ts.year)
+        .eq("month", ts.month)
+        .gt("week_number", 0);
+      if (weekErr) {
+        return NextResponse.json({ error: weekErr.message }, { status: 400 });
+      }
+    }
 
     await writeAudit({
       actorUserId: user.id,

@@ -271,10 +271,10 @@ export function DirectoryHealthPanel({
           <p className="text-sm font-medium mb-3">How to improve directory health</p>
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li>• Every employee needs an Entra ID account with a valid email or userPrincipalName.</li>
-            <li>• Managers must be set in Entra's org chart. Missing managers break approval routing.</li>
+            <li>• Managers must be set in Entra&apos;s org chart. Missing managers break approval routing.</li>
             <li>• Employee numbers (employeeId) must be unique. Duplicates break payroll matching.</li>
-            <li>• Use "Auto-assign manager roles" after a directory sync to fix role gaps automatically.</li>
-            <li>• Use "Re-route submitted (missing)" after fixing managers to repair in-flight approvals.</li>
+            <li>• Use &ldquo;Auto-assign manager roles&rdquo; after a directory sync to fix role gaps automatically.</li>
+            <li>• Use &ldquo;Re-route submitted (missing)&rdquo; after fixing managers to repair in-flight approvals.</li>
           </ul>
         </div>
       )}

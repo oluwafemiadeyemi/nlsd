@@ -13,6 +13,7 @@ import { toast } from "@/hooks/use-toast";
 import { ReceiptUpload } from "./ReceiptUpload";
 import { Save, Send, CheckCircle, XCircle, RotateCcw, Printer } from "lucide-react";
 import { ManagerCombobox, type ManagerOption } from "@/components/shared/ManagerCombobox";
+import { EXPENSE_MONTH_NAMES } from "@/domain/expenses/period";
 import { cn } from "@/lib/utils";
 import { addDays, format } from "date-fns";
 
@@ -21,6 +22,7 @@ interface ExpenseWeekClientProps {
   userId: string;
   /** The employee who owns the report (for receipt storage paths). Defaults to userId. */
   employeeId?: string;
+  month: number;
   weekNumber: string;
   year: number;
   weekBeginningDate: string;
@@ -48,6 +50,7 @@ export function ExpenseWeekClient({
   reportId,
   userId,
   employeeId,
+  month,
   weekNumber,
   year,
   weekBeginningDate,
@@ -141,6 +144,7 @@ export function ExpenseWeekClient({
             employee_id: userId,
             manager_id: selectedManager || managerId || null,
             year,
+            month,
             week_number: weekNumber,
             week_beginning_date: weekBeginningDate,
             destination: destination || null,
@@ -281,9 +285,9 @@ export function ExpenseWeekClient({
     if (!reportId) return;
     setSaving(true);
     try {
-      const { error: recallErr } = await (supabase.from as any)("expense_reports").update({ status: "draft", submitted_at: null }).eq("id", reportId);
-      if (recallErr) throw recallErr;
-      await writeAuditLog(reportId, "update", "Recalled to draft");
+      const res = await fetch(`/api/expenses/${reportId}/recall`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Recall failed");
       setStatus("draft");
       toast({ title: "Recalled to draft" });
       router.refresh();
@@ -298,7 +302,7 @@ export function ExpenseWeekClient({
     <div className="max-w-6xl mx-auto space-y-4 print-expense-sheet">
       {/* Print-only header */}
       <div className="hidden print:block print-header mb-4">
-        <h1 className="text-xl font-bold">Expense Report — Week {weekNumber}, {year}</h1>
+        <h1 className="text-xl font-bold">Expense Report — Week {Number.parseInt(weekNumber, 10)}, {EXPENSE_MONTH_NAMES[month - 1]} {year}</h1>
         <div className="grid grid-cols-2 gap-x-8 gap-y-1 mt-2 text-sm">
           <div><span className="font-semibold">Status:</span> {status.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
           {destination && <div><span className="font-semibold">Destination:</span> {destination}</div>}
@@ -309,7 +313,7 @@ export function ExpenseWeekClient({
 
       <div className="flex items-center justify-between flex-wrap gap-3 no-print">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold">Week {weekNumber}, {year}</h2>
+          <h2 className="text-lg font-semibold">Week {Number.parseInt(weekNumber, 10)}, {EXPENSE_MONTH_NAMES[month - 1]} {year}</h2>
           <StatusBadge status={status} />
         </div>
 
@@ -378,7 +382,7 @@ export function ExpenseWeekClient({
         </div>
       )}
 
-      {/* Manager + Destination + notes fields */}
+      {/* Manager + Destination + Notes fields */}
       {canEdit && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 no-print">
           <div>

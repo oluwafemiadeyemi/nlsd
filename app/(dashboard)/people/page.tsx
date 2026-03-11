@@ -1,6 +1,7 @@
 import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { TopBar } from "@/components/layout/TopBar";
+import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "People" };
@@ -45,9 +46,11 @@ export default async function PeoplePage() {
                   const roles = (p.user_roles ?? []).map((r: any) => r.role).join(", ");
                   const managerName = p.employee_manager?.[0]?.manager?.display_name;
                   return (
-                    <tr key={p.id} className="hover:bg-accent/30 transition-colors">
+                    <tr key={p.id} className="hover:bg-accent/30 transition-colors cursor-pointer">
                       <td className="px-4 py-3">
-                        <div className="font-medium">{p.display_name ?? "—"}</div>
+                        <Link href={`/admin/employees/${p.id}`} className="font-medium hover:text-primary hover:underline">
+                          {p.display_name ?? "—"}
+                        </Link>
                         <div className="text-xs text-muted-foreground">{p.email}</div>
                         {p.job_title && <div className="text-xs text-muted-foreground">{p.job_title}</div>}
                       </td>

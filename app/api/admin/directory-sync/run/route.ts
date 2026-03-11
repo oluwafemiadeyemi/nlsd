@@ -153,6 +153,45 @@ export async function POST() {
       for (const p of data ?? []) profileByEmail.set((p.email ?? "").toLowerCase(), p as any);
     }
 
+    // Auto-provision auth users (and profiles via handle_new_user trigger)
+    // for Entra members who don't have an app profile yet.
+    const usersToProvision = users.filter((u) => {
+      const email = (u.mail ?? u.userPrincipalName ?? "").toLowerCase().trim();
+      return email && !profileByEmail.has(email);
+    });
+    let profilesProvisioned = 0;
+    if (usersToProvision.length > 0) {
+      await updateProgress(adminDb, runId, `Provisioning ${usersToProvision.length} new user profiles...`);
+      await mapWithConcurrency(usersToProvision, 5, async (u) => {
+        const email = (u.mail ?? u.userPrincipalName ?? "").toLowerCase().trim();
+        try {
+          const { error: createErr } = await adminDb.auth.admin.createUser({
+            email,
+            email_confirm: true,
+            user_metadata: {
+              full_name: u.displayName ?? email.split("@")[0],
+              azure_user_id: u.id,
+            },
+          });
+          if (createErr) return; // user may already exist in auth.users
+          profilesProvisioned++;
+        } catch {
+          // Non-fatal: skip this user
+        }
+      });
+
+      // Re-fetch profiles to include newly created ones
+      profileByEmail.clear();
+      for (const part of chunk(emails, 500)) {
+        const { data, error } = await adminDb
+          .from("profiles")
+          .select("id, email, azure_user_id")
+          .in("email", part);
+        if (error) throw new Error(error.message);
+        for (const p of data ?? []) profileByEmail.set((p.email ?? "").toLowerCase(), p as any);
+      }
+    }
+
     const profileUpdates: any[] = [];
     for (const u of users) {
       const email = (u.mail ?? u.userPrincipalName ?? "").toLowerCase().trim();
@@ -336,6 +375,7 @@ export async function POST() {
         status: "success",
         finished_at: new Date().toISOString(),
         users_fetched: users.length,
+        profiles_provisioned: profilesProvisioned,
         profiles_updated: profileUpdates.length,
         manager_links_upserted: managerLinksCount,
         role_grants_upserted: roleRowsToUpsert.length,
@@ -350,13 +390,14 @@ export async function POST() {
       entityType: "directory_sync",
       entityId: runId,
       action: "sync_success",
-      comment: `Users=${users.length}, profiles=${profileUpdates.length}, photos=${photosSynced}, managers=${managerLinksCount}, roleGrants=${roleRowsToUpsert.length}, rolesRemoved=${rolesRemoved}`,
+      comment: `Users=${users.length}, provisioned=${profilesProvisioned}, profiles=${profileUpdates.length}, photos=${photosSynced}, managers=${managerLinksCount}, roleGrants=${roleRowsToUpsert.length}, rolesRemoved=${rolesRemoved}`,
     });
 
     return NextResponse.json({
       ok: true,
       runId,
       usersFetched: users.length,
+      profilesProvisioned,
       profilesUpdated: profileUpdates.length,
       photosSynced,
       managerLinksUpserted: managerLinksCount,

@@ -6,74 +6,78 @@ import { ExpenseWeekClient } from "@/components/expenses/ExpenseWeekClient";
 import type { ExpenseDay } from "@/domain/expenses/types";
 import { EXPENSE_DAYS, DAY_INDEX } from "@/domain/expenses/types";
 import { emptyExpenseDaysMap } from "@/domain/expenses/calculations";
-import { addDays, startOfISOWeek, format } from "date-fns";
+import {
+  buildExpenseWeekDates,
+  formatExpensePeriodLabel,
+  formatExpenseWeekNumber,
+  getExpenseWeekBlockStart,
+  getExpenseWeekCount,
+} from "@/domain/expenses/period";
+import { format } from "date-fns";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Expense Claim" };
-
-/** ISO week number (1-52) → Monday of that week */
-function weekNumberToMonday(year: number, weekNum: number): Date {
-  const jan4 = new Date(year, 0, 4); // Jan 4 is always in ISO week 1
-  const startOfWeek1 = startOfISOWeek(jan4);
-  return addDays(startOfWeek1, (weekNum - 1) * 7);
-}
-
-/** Build day → "MMM d" for Mon-Sat from a Monday start */
-function buildWeekDates(weekStart: Date): Partial<Record<ExpenseDay, string>> {
-  const result: Partial<Record<ExpenseDay, string>> = {};
-  EXPENSE_DAYS.forEach((day) => {
-    result[day] = format(addDays(weekStart, DAY_INDEX[day]), "MMM d");
-  });
-  return result;
-}
 
 export default async function ExpenseReportPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ year?: string; week?: string }>;
+  searchParams: Promise<{ year?: string; month?: string; week?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
   const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: profile }: any = await supabase
-    .from("profiles").select("display_name, email, department").eq("id", user.id).single();
+    .from("profiles")
+    .select("display_name, email, department")
+    .eq("id", user.id)
+    .single();
 
-  const currentYear = new Date().getFullYear();
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1;
   const userRole = await getCurrentUserRole();
 
   const { managers, allDir } = await fetchDepartmentManagers(profile?.department ?? "");
   const defaultManagerId = await resolveDefaultManager(supabase, user.id, allDir);
 
   if (id === "new") {
-    const year = parseInt(sp.year ?? String(currentYear));
-    const weekNum = parseInt(sp.week ?? "01");
-    const weekNumber = String(weekNum).padStart(2, "0");
+    const year = clamp(Number.parseInt(sp.year ?? String(currentYear), 10), 2000, 2100);
+    const month = clamp(Number.parseInt(sp.month ?? String(currentMonth), 10), 1, 12);
+    const maxWeek = getExpenseWeekCount(year, month);
+    const weekNumber = formatExpenseWeekNumber(
+      clamp(Number.parseInt(sp.week ?? "01", 10), 1, maxWeek)
+    );
 
     const { data: existing }: any = await supabase
       .from("expense_reports")
       .select("id")
       .eq("employee_id", user.id)
       .eq("year", year)
+      .eq("month", month)
       .eq("week_number", weekNumber)
       .maybeSingle();
 
     if (existing) redirect(`/expenses/${existing.id}`);
 
-    const weekStart = weekNumberToMonday(year, weekNum);
-    const weekDates = buildWeekDates(weekStart);
+    const weekStart = getExpenseWeekBlockStart(year, month, weekNumber);
+    const weekDates = buildExpenseWeekDates(year, month, weekNumber);
+    const periodLabel = formatExpensePeriodLabel({ year, month, weekNumber });
 
     return (
       <div className="flex flex-col h-full">
-        <TopBar title={`New Expense Claim — Week ${weekNumber}, ${year}`} />
+        <TopBar title={`New Expense Claim — ${periodLabel}`} />
         <div className="flex-1 overflow-y-auto p-6">
           <ExpenseWeekClient
             reportId={null}
             userId={user.id}
+            month={month}
             weekNumber={weekNumber}
             year={year}
             weekBeginningDate={format(weekStart, "yyyy-MM-dd")}
@@ -93,7 +97,6 @@ export default async function ExpenseReportPage({
     );
   }
 
-  // Load existing report
   const { data: report }: any = await supabase
     .from("expense_reports")
     .select("*, expense_entries(*)")
@@ -102,7 +105,6 @@ export default async function ExpenseReportPage({
 
   if (!report) notFound();
 
-  // Load audit log
   const { data: auditRaw }: any = await supabase
     .from("audit_log")
     .select("*, actor:profiles!actor_user_id(display_name)")
@@ -110,44 +112,47 @@ export default async function ExpenseReportPage({
     .eq("entity_id", id)
     .order("created_at");
 
-  const auditLog = (auditRaw ?? []).map((a: any) => ({
-    ...a,
-    actorName: a.actor?.display_name ?? "System",
+  const auditLog = (auditRaw ?? []).map((entry: any) => ({
+    ...entry,
+    actorName: entry.actor?.display_name ?? "System",
   }));
 
-  // Map expense_entries (day_index 0-5) → ExpenseDayEntry keyed by day name
   const days = emptyExpenseDaysMap();
-  const IDX_TO_DAY: ExpenseDay[] = ["mon", "tue", "wed", "thu", "fri", "sat"];
-  for (const e of (report.expense_entries ?? []) as any[]) {
-    const day = IDX_TO_DAY[e.day_index] as ExpenseDay | undefined;
+  const indexToDay: ExpenseDay[] = ["mon", "tue", "wed", "thu", "fri", "sat"];
+  for (const entry of (report.expense_entries ?? []) as any[]) {
+    const day = indexToDay[entry.day_index] as ExpenseDay | undefined;
     if (!day) continue;
     days[day] = {
-      travelFrom: e.travel_from ?? "",
-      travelTo: e.travel_to ?? "",
-      mileageKm: e.mileage_km ?? 0,
-      mileageCost: e.mileage_cost ?? 0,
-      lodging: e.lodging_amount,
-      breakfast: e.breakfast_amount,
-      lunch: e.lunch_amount,
-      dinner: e.dinner_amount,
-      other: e.other_amount,
-      notes: e.notes ?? "",
-      otherNote: e.other_note ?? "",
+      travelFrom: entry.travel_from ?? "",
+      travelTo: entry.travel_to ?? "",
+      mileageKm: entry.mileage_km ?? 0,
+      mileageCost: entry.mileage_cost ?? 0,
+      lodging: entry.lodging_amount,
+      breakfast: entry.breakfast_amount,
+      lunch: entry.lunch_amount,
+      dinner: entry.dinner_amount,
+      other: entry.other_amount,
+      notes: entry.notes ?? "",
+      otherNote: entry.other_note ?? "",
     };
   }
 
-  const weekNum = parseInt(report.week_number);
-  const weekStart = new Date(report.week_beginning_date);
-  const weekDates = buildWeekDates(weekStart);
+  const weekDates = buildExpenseWeekDates(report.year, report.month, report.week_number);
+  const periodLabel = formatExpensePeriodLabel({
+    year: report.year,
+    month: report.month,
+    weekNumber: report.week_number,
+  });
 
   return (
     <div className="flex flex-col h-full">
-      <TopBar title={`Expense Claim — Week ${report.week_number}, ${report.year}`} />
+      <TopBar title={`Expense Claim — ${periodLabel}`} />
       <div className="flex-1 overflow-y-auto p-6">
         <ExpenseWeekClient
           reportId={report.id}
           userId={user.id}
           employeeId={report.employee_id}
+          month={report.month}
           weekNumber={report.week_number}
           year={report.year}
           weekBeginningDate={report.week_beginning_date}
@@ -171,4 +176,9 @@ export default async function ExpenseReportPage({
       </div>
     </div>
   );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }

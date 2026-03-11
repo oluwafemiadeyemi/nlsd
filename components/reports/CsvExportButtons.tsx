@@ -45,6 +45,7 @@ export function CsvExportButtons({ year }: CsvExportButtonsProps) {
           )
         `)
         .eq("year", year)
+        .gt("week_number", 0)
         .order("month")
         .order("week_number");
 
@@ -96,9 +97,9 @@ export function CsvExportButtons({ year }: CsvExportButtonsProps) {
   async function exportExpenses() {
     setExporting("expenses");
     try {
-      const { data, error } = await (supabase.from as any)("expense_reports")
-        .select(`
-          id, year, week_number, week_beginning_date, destination, status, submitted_at, approved_at,
+        const { data, error } = await (supabase.from as any)("expense_reports")
+          .select(`
+          id, year, month, week_number, week_beginning_date, destination, status, submitted_at, approved_at,
           employee:profiles!employee_id(display_name, email, department),
           expense_entries(day_index, entry_date, travel_from, travel_to,
             mileage_km, mileage_cost, lodging_amount,
@@ -106,13 +107,14 @@ export function CsvExportButtons({ year }: CsvExportButtonsProps) {
             other_amount, other_note)
         `)
         .eq("year", year)
+        .order("month")
         .order("week_number");
 
       if (error) throw error;
 
       const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const headers = [
-        "Employee", "Email", "Department", "Year", "Week", "Destination",
+        "Employee", "Email", "Department", "Year", "Month", "Week", "Destination",
         "Day", "Date", "Travel From", "Travel To",
         "Mileage KM", "Mileage Cost", "Lodging",
         "Breakfast", "Lunch", "Dinner", "Other", "Other Note",
@@ -131,6 +133,7 @@ export function CsvExportButtons({ year }: CsvExportButtonsProps) {
             r.employee?.email ?? "",
             r.employee?.department ?? "",
             String(r.year),
+            String(r.month),
             String(r.week_number),
             r.destination ?? "",
             dayNames[e.day_index] ?? String(e.day_index),

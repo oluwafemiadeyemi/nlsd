@@ -114,11 +114,11 @@ export function TopNav({
         const employeeIds = (matchingProfiles ?? []).map((p: any) => p.id);
         const [ex]: any[] = await Promise.all([
           employeeIds.length > 0
-            ? (supabase.from as any)("expense_reports").select("id, year, week_number, status").in("employee_id", employeeIds).limit(5)
+            ? (supabase.from as any)("expense_reports").select("id, year, month, week_number, status").in("employee_id", employeeIds).limit(5)
             : Promise.resolve({ data: [] as any[] }),
         ]);
         setResults([
-          ...(ex.data ?? []).map((e: any) => ({ id: e.id, type: "expense" as const, label: `Expenses — ${e.year} Wk${e.week_number}`, sublabel: e.status, href: `/expenses/${e.id}` })),
+          ...(ex.data ?? []).map((e: any) => ({ id: e.id, type: "expense" as const, label: `Expenses — ${e.month ? `${e.month}/` : ""}${e.year} Wk${e.week_number}`, sublabel: e.status, href: `/expenses/${e.id}` })),
           ...(matchingProfiles ?? []).map((p: any) => ({ id: p.id, type: "person" as const, label: p.display_name, sublabel: p.email, href: `/people/${p.id}` })),
         ]);
       } finally { setSearchLoading(false); }

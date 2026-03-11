@@ -3,6 +3,20 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import {
+  TIMESHEET_BILLING_TYPE_NAMES,
+  TIMESHEET_LOCATION_TITLES,
+  buildMonthDayEntriesFromTimesheets,
+  buildTimesheetRowsFromEntries,
+  buildWeekDraftPayload,
+  emptyTimesheetDayEntry,
+  getTimesheetWeekCount,
+  getTimesheetWeekDayNumbers,
+  hasAnyTimesheetEntryValue,
+  type TimesheetDayEntry,
+  type TimesheetLookupOption,
+  type PersistedTimesheetRow,
+} from "@/domain/timesheets/editor";
 
 
 const MONTH_NAMES = ["","January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -11,37 +25,6 @@ const TIMESHEET_YEAR_OPTIONS = Array.from({ length: 101 }, (_, index) => 2000 + 
 const TABS = ["Timesheets"] as const;
 type Tab = typeof TABS[number];
 
-const BILLING_TYPES = [
-  "Regular Time 1",
-  "Regular Time 2",
-  "Regular Time 3",
-  "Regular Time 4",
-  "Start Holiday",
-  "Vacation",
-  "Earned Day Off",
-  "Sick",
-  "Compassionate",
-  "Leave Without Pay",
-] as const;
-
-const LOCATIONS = [
-  "Beauval",
-  "Brabant Lake",
-  "Buffalo Narrows",
-  "Cole Bay",
-  "Cumberland House",
-  "Green Lake",
-  "Jans Bay",
-  "La Loche",
-  "La Ronge/Air Ronge",
-  "Pinehouse",
-  "Sandy Bay",
-  "St George's Hill",
-  "Stony Rapids",
-  "Timber Bay",
-  "Uranium City",
-  "Weyakwin",
-] as const;
 
 const EXPENSE_STRIPES = [
   "#f97316",
@@ -57,8 +40,26 @@ const EXPENSE_CATS = [
   { key: "other" as const, label: "Other" },
 ];
 
-interface TsRow { id: string; week_number: number; status: string; month?: number; year?: number; employee_notes?: string | null; manager_comments?: string | null; }
-interface ExRow { id: string; week_number: number; year: number; status: string; }
+interface TsRow {
+  id: string;
+  week_number: number;
+  status: string;
+  month?: number;
+  year?: number;
+  employee_notes?: string | null;
+  manager_comments?: string | null;
+  manager_id?: string | null;
+  draft_payload?: unknown;
+  timesheet_rows?: PersistedTimesheetRow[] | null;
+}
+
+interface ExRow {
+  id: string;
+  week_number: string | number;
+  year: number;
+  month?: number;
+  status: string;
+}
 
 interface ManagerOption {
   id: string;
@@ -164,136 +165,480 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     if (now.getFullYear() === year && now.getMonth() + 1 === month) return now.getDate();
     return null;
   });
-  type DayEntry = { billingType: string; project: string; hours: string; manager: string; mileage: string; meals: string; lodging: string; other: string };
-  const [dayEntries, setDayEntries] = useState<Record<number, DayEntry[]>>({});
+  const [dayEntries, setDayEntries] = useState<Record<number, TimesheetDayEntry[]>>({});
   const [selectedEntryIdx, setSelectedEntryIdx] = useState(0);
   const [editingBilling, setEditingBilling] = useState(false);
   const [editingLocation, setEditingLocation] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
+  const [billingOptions, setBillingOptions] = useState<TimesheetLookupOption[]>([]);
+  const [locationOptions, setLocationOptions] = useState<TimesheetLookupOption[]>([]);
   const [monthNotes, setMonthNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [periodLoading, setPeriodLoading] = useState(false);
+  const [periodReady, setPeriodReady] = useState(false);
+  const [dbSupportsMonth, setDbSupportsMonth] = useState(true);
   const [showSummary, setShowSummary] = useState(false);
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
   const [approvalComment, setApprovalComment] = useState("");
   const [localTimesheets, setLocalTimesheets] = useState<TsRow[]>(realTimesheets);
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const isManager = userRole === "manager" || userRole === "admin" || userRole === "finance";
+  const loadedSnapshotRef = useRef("");
 
   // Sync localTimesheets when server data changes
   useEffect(() => { setLocalTimesheets(realTimesheets); }, [realTimesheets]);
 
-  // Track which month/year the current dayEntries + notes belong to
-  const activeKeyRef = useRef(`${selectedYear}-${selectedMonth}`);
-
-  // Load from localStorage after hydration
   useEffect(() => {
-    const key = `${selectedYear}-${selectedMonth}`;
-    try {
-      const saved = localStorage.getItem(`dayEntries-${key}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Migrate old format (single entry per day) to new format (array per day)
-        const migrated: Record<number, DayEntry[]> = {};
-        for (const [k, v] of Object.entries(parsed)) {
-          migrated[Number(k)] = Array.isArray(v) ? v as DayEntry[] : [v as DayEntry];
-        }
-        setDayEntries(migrated);
-      }
-    } catch {}
-    try {
-      const saved = localStorage.getItem(`monthNotes-${key}`);
-      setMonthNotes(saved ?? "");
-    } catch {}
-    activeKeyRef.current = key;
-    setHydrated(true);
-  }, []);
+    let cancelled = false;
+
+    (async () => {
+      const [billingResult, locationResult]: any[] = await Promise.all([
+        (supabase.from as any)("billing_types")
+          .select("id, name")
+          .in("name", [...TIMESHEET_BILLING_TYPE_NAMES]),
+        (supabase.from as any)("projects")
+          .select("id, code, title")
+          .in("title", [...TIMESHEET_LOCATION_TITLES]),
+      ]);
+
+      if (cancelled) return;
+
+      const billingByName = new Map((billingResult.data ?? []).map((item: any) => [item.name, item]));
+      const locationByTitle = new Map((locationResult.data ?? []).map((item: any) => [item.title, item]));
+
+      setBillingOptions(
+        TIMESHEET_BILLING_TYPE_NAMES
+          .map((name) => billingByName.get(name))
+          .filter(Boolean)
+          .map((item: any) => ({ id: item.id, label: item.name }))
+      );
+      setLocationOptions(
+        TIMESHEET_LOCATION_TITLES
+          .map((title) => locationByTitle.get(title))
+          .filter(Boolean)
+          .map((item: any) => ({ id: item.id, label: item.title, code: item.code }))
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   // Auto-save entries — always writes to the ref key (the month the data belongs to)
   useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(`dayEntries-${activeKeyRef.current}`, JSON.stringify(dayEntries));
-  }, [dayEntries, hydrated]);
+    if (!userId) return;
+    let cancelled = false;
+    setPeriodLoading(true);
+    setPeriodReady(false);
+
+    (async () => {
+      // Try with month column first; fall back to year-only if column doesn't exist yet
+      let data: any[] | null = null;
+      let error: any = null;
+
+      const selectCols = `
+        id, year, month, week_number, status, employee_notes, manager_comments, manager_id, draft_payload,
+        timesheet_rows(
+          id, timesheet_id, billing_type_id, project_id, sun, mon, tue, wed, thu, fri, sat, weekly_total,
+          sun_location, mon_location, tue_location, wed_location, thu_location, fri_location, sat_location,
+          billing_type:billing_types(name),
+          project:projects(code, title)
+        )
+      `;
+
+      const result: any = await (supabase.from as any)("timesheets")
+        .select(selectCols)
+        .eq("employee_id", userId)
+        .eq("year", selectedYear)
+        .eq("month", selectedMonth)
+        .order("week_number");
+
+      if (result.error) {
+        // Fallback: month/draft_payload columns may not exist yet (migration 021 pending).
+        // Disable DB draft persistence until migration is applied.
+        if (!cancelled) setDbSupportsMonth(false);
+        const fallback: any = await (supabase.from as any)("timesheets")
+          .select(`
+            id, year, week_number, status, employee_notes, manager_comments, manager_id,
+            timesheet_rows(
+              id, timesheet_id, billing_type_id, project_id, sun, mon, tue, wed, thu, fri, sat, weekly_total,
+              sun_location, mon_location, tue_location, wed_location, thu_location, fri_location, sat_location,
+              billing_type:billing_types(name),
+              project:projects(code, title)
+            )
+          `)
+          .eq("employee_id", userId)
+          .eq("year", selectedYear)
+          .order("week_number");
+
+        data = fallback.data;
+        error = fallback.error;
+      } else {
+        data = result.data;
+        error = result.error;
+      }
+
+      if (cancelled) return;
+      if (error) {
+        console.error("Failed to load timesheet period:", error);
+        setPeriodLoading(false);
+        return;
+      }
+
+      const fetched = (data ?? []) as TsRow[];
+      const nextEntries = buildMonthDayEntriesFromTimesheets({
+        timesheets: fetched,
+        year: selectedYear,
+        month: selectedMonth,
+      });
+      const nextMonthRecord = fetched.find((item) => item.week_number === 0);
+      const resolvedManager =
+        nextMonthRecord?.manager_id ??
+        fetched.find((item) => item.week_number > 0 && item.manager_id)?.manager_id ??
+        defaultManagerId;
+      const resolvedNotes = nextMonthRecord?.employee_notes ?? "";
+      const nextWeek = Math.min(activeWeek, getTimesheetWeekCount(selectedYear, selectedMonth));
+
+      setLocalTimesheets((prev) => mergeTimesheetsForPeriod(prev, fetched, selectedYear, selectedMonth));
+      setDayEntries(nextEntries);
+      setMonthNotes(resolvedNotes);
+      setSelectedManager(resolvedManager ?? "");
+      setActiveWeek(nextWeek);
+      setSelectedEntryIdx(0);
+      setSelectedDay(resolveSelectedDayForWeek(nextWeek, nextEntries, selectedDay));
+      setEditingBilling(false);
+      setEditingLocation(false);
+      loadedSnapshotRef.current = buildPeriodSnapshot(nextEntries, resolvedNotes, resolvedManager ?? "");
+      setPeriodReady(true);
+      setPeriodLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [defaultManagerId, selectedMonth, selectedYear, supabase, userId]);
 
   // Auto-save notes — always writes to the ref key
   useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(`monthNotes-${activeKeyRef.current}`, monthNotes);
-  }, [monthNotes, hydrated]);
+    if (!userId || !periodReady || !dbSupportsMonth) return;
+    const nextSnapshot = buildPeriodSnapshot(dayEntries, monthNotes, selectedManager);
+    if (nextSnapshot === loadedSnapshotRef.current) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void persistDraftPeriod({
+        targetYear: selectedYear,
+        targetMonth: selectedMonth,
+        nextEntries: dayEntries,
+        nextNotes: monthNotes,
+        nextManagerId: selectedManager,
+        silent: true,
+      }).then((didPersist) => {
+        if (didPersist) {
+          loadedSnapshotRef.current = nextSnapshot;
+        }
+      });
+    }, 600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [dayEntries, monthNotes, periodReady, selectedManager, selectedMonth, selectedYear, userId]);
 
   // Switch month/year: save current data first, then load the new month
   function switchPeriod(newMonth: number, newYear: number) {
-    if (hydrated) {
-      // Flush current data to the OLD key before switching
-      localStorage.setItem(`dayEntries-${activeKeyRef.current}`, JSON.stringify(dayEntries));
-      localStorage.setItem(`monthNotes-${activeKeyRef.current}`, monthNotes);
-    }
-    const newKey = `${newYear}-${newMonth}`;
-    // Load new month's data
-    let loadedEntries: Record<number, DayEntry[]> = {};
-    let loadedNotes = "";
-    try {
-      const saved = localStorage.getItem(`dayEntries-${newKey}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        for (const [k, v] of Object.entries(parsed)) {
-          loadedEntries[Number(k)] = Array.isArray(v) ? v as DayEntry[] : [v as DayEntry];
-        }
-      }
-    } catch {}
-    try {
-      const saved = localStorage.getItem(`monthNotes-${newKey}`);
-      loadedNotes = saved ?? "";
-    } catch {}
-    // Update ref BEFORE setting state so auto-save targets the new key
-    activeKeyRef.current = newKey;
-    setDayEntries(loadedEntries);
-    setMonthNotes(loadedNotes);
+    void persistDraftPeriod({
+      targetYear: selectedYear,
+      targetMonth: selectedMonth,
+      nextEntries: dayEntries,
+      nextNotes: monthNotes,
+      nextManagerId: selectedManager,
+      silent: true,
+    });
     setSelectedMonth(newMonth);
     setSelectedYear(newYear);
     setActiveWeek(1);
+    setSelectedEntryIdx(0);
     setSelectedDay(null);
+    setEditingBilling(false);
+    setEditingLocation(false);
   }
 
-  function copyFromPreviousMonth() {
-    const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
-    const prevYear = selectedMonth === 1 ? selectedYear - 1 : selectedYear;
-    const prevKey = `${prevYear}-${prevMonth}`;
+  function mergeTimesheetsForPeriod(prev: TsRow[], next: TsRow[], targetYear: number, targetMonth: number) {
+    return [
+      ...prev.filter((item) => !(item.year === targetYear && item.month === targetMonth)),
+      ...next,
+    ];
+  }
+
+  function buildPeriodSnapshot(
+    entries: Record<number, TimesheetDayEntry[]>,
+    notes: string,
+    managerId: string
+  ) {
+    return JSON.stringify({ entries, notes, managerId });
+  }
+
+  function resolveSelectedDayForWeek(
+    targetWeek: number,
+    entries: Record<number, TimesheetDayEntry[]>,
+    preferredDay: number | null
+  ) {
+    const weekDays = getTimesheetWeekDayNumbers(selectedYear, selectedMonth, targetWeek);
+    if (preferredDay != null && weekDays.includes(preferredDay)) {
+      return preferredDay;
+    }
+
+    const populatedDay = weekDays.find((day) => (entries[day] ?? []).length > 0);
+    return populatedDay ?? weekDays[0] ?? null;
+  }
+
+  async function persistDraftPeriod(args: {
+    targetYear: number;
+    targetMonth: number;
+    nextEntries: Record<number, TimesheetDayEntry[]>;
+    nextNotes: string;
+    nextManagerId: string;
+    submit?: boolean;
+    silent?: boolean;
+  }) {
+    if (!userId) return false;
+    if (!dbSupportsMonth) {
+      if (!args.silent) throw new Error("Database migration required. Please run migration 021 to enable timesheet draft persistence.");
+      return false;
+    }
     try {
-      const saved = localStorage.getItem(`dayEntries-${prevKey}`);
-      if (!saved) return false;
-      const parsed = JSON.parse(saved);
-      // Re-map day entries: match by day-of-week, not day number
-      const prevDaysInMonth = new Date(prevYear, prevMonth, 0).getDate();
-      const curDaysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
-      const mapped: Record<number, DayEntry[]> = {};
-      for (let d = 1; d <= curDaysInMonth; d++) {
-        const dow = new Date(selectedYear, selectedMonth - 1, d).getDay();
-        // Find a day in the previous month with the same day-of-week
-        for (let pd = 1; pd <= prevDaysInMonth; pd++) {
-          const pDow = new Date(prevYear, prevMonth - 1, pd).getDay();
-          if (pDow === dow && parsed[pd]) {
-            const entries = Array.isArray(parsed[pd]) ? parsed[pd] : [parsed[pd]];
-            if (entries.some((e: DayEntry) => e.hours || e.billingType || e.project)) {
-              mapped[d] = entries;
-              break;
-            }
-          }
+      const { data: existingRows, error: existingError }: any = await (supabase.from as any)("timesheets")
+        .select("id, year, month, week_number, status, employee_notes, manager_comments, manager_id")
+        .eq("employee_id", userId)
+        .eq("year", args.targetYear)
+        .eq("month", args.targetMonth)
+        .order("week_number");
+
+      if (existingError) {
+        if (!args.silent) console.error("Failed to read existing timesheets:", existingError);
+        return false;
+      }
+
+      const existingByWeek = new Map<number, TsRow>((existingRows ?? []).map((row: TsRow) => [row.week_number, row]));
+      const existingMonthRecord = existingByWeek.get(0);
+      if (!args.submit && existingMonthRecord && ["submitted", "manager_approved", "approved"].includes(existingMonthRecord.status)) {
+        return false;
+      }
+      const projectLabelById = Object.fromEntries(locationOptions.map((option) => [option.id, option.label]));
+      const nowIso = new Date().toISOString();
+      const refreshedWeeks: TsRow[] = [];
+      const totalWeeks = getTimesheetWeekCount(args.targetYear, args.targetMonth);
+
+      for (let weekNumber = 1; weekNumber <= totalWeeks; weekNumber += 1) {
+        const hasWeekData = buildWeekDraftPayload(args.nextEntries, args.targetYear, args.targetMonth, weekNumber);
+        const existing = existingByWeek.get(weekNumber);
+        const baseStatus =
+          existing?.status === "rejected" || existing?.status === "manager_rejected"
+            ? existing.status
+            : "draft";
+
+        if (!hasWeekData && !existing) continue;
+
+        let timesheetId = existing?.id;
+        let updatedTimesheet: TsRow | null = null;
+
+        if (timesheetId) {
+          const { data: updated, error } = await (supabase.from as any)("timesheets")
+            .update({
+              status: baseStatus,
+              manager_id: args.nextManagerId || null,
+              employee_notes: args.nextNotes || null,
+              draft_payload: hasWeekData,
+              submitted_at: null,
+            })
+            .eq("id", timesheetId)
+            .select("id, year, month, week_number, status, employee_notes, manager_comments, manager_id")
+            .single();
+          if (error) throw error;
+          updatedTimesheet = updated as TsRow;
+        } else {
+          const { data: inserted, error } = await (supabase.from as any)("timesheets")
+            .insert({
+              employee_id: userId,
+              year: args.targetYear,
+              month: args.targetMonth,
+              week_number: weekNumber,
+              status: "draft",
+              manager_id: args.nextManagerId || null,
+              employee_notes: args.nextNotes || null,
+              draft_payload: hasWeekData,
+            })
+            .select("id, year, month, week_number, status, employee_notes, manager_comments, manager_id")
+            .single();
+          if (error) throw error;
+          timesheetId = inserted.id;
+          updatedTimesheet = inserted as TsRow;
+        }
+
+        const { error: deleteRowsError } = await (supabase.from as any)("timesheet_rows")
+          .delete()
+          .eq("timesheet_id", timesheetId);
+        if (deleteRowsError) throw deleteRowsError;
+
+        const nextRows = buildTimesheetRowsFromEntries({
+          timesheetId: timesheetId!,
+          dayEntries: args.nextEntries,
+          year: args.targetYear,
+          month: args.targetMonth,
+          week: weekNumber,
+          projectLabelById,
+        });
+
+        if (nextRows.length > 0) {
+          const { error: insertRowsError } = await (supabase.from as any)("timesheet_rows").insert(nextRows);
+          if (insertRowsError) throw insertRowsError;
+        }
+
+        if (args.submit) {
+          const { data: submittedRow, error: submitError } = await (supabase.from as any)("timesheets")
+            .update({
+              status: "submitted",
+              manager_id: args.nextManagerId || null,
+              employee_notes: args.nextNotes || null,
+              submitted_at: nowIso,
+            })
+            .eq("id", timesheetId)
+            .select("id, year, month, week_number, status, employee_notes, manager_comments, manager_id")
+            .single();
+          if (submitError) throw submitError;
+          refreshedWeeks.push(submittedRow as TsRow);
+        } else if (updatedTimesheet) {
+          refreshedWeeks.push(updatedTimesheet);
         }
       }
-      if (Object.keys(mapped).length === 0) return false;
-      setDayEntries(mapped);
+
+      const hasAnyMonthDraftData = Object.values(args.nextEntries).some((entries) =>
+        entries.some(hasAnyTimesheetEntryValue)
+      );
+      const shouldPersistMonthRecord =
+        args.submit ||
+        existingMonthRecord != null ||
+        args.nextNotes.trim().length > 0 ||
+        args.nextManagerId.trim().length > 0 ||
+        hasAnyMonthDraftData;
+
+      const refreshedMonthRows: TsRow[] = [];
+      if (shouldPersistMonthRecord) {
+        const monthStatus =
+          args.submit
+            ? "submitted"
+            : existingMonthRecord?.status === "rejected" || existingMonthRecord?.status === "manager_rejected"
+              ? existingMonthRecord.status
+              : "draft";
+
+        if (existingMonthRecord?.id) {
+          const { data: updated, error } = await (supabase.from as any)("timesheets")
+            .update({
+              status: monthStatus,
+              manager_id: args.nextManagerId || null,
+              employee_notes: args.nextNotes || null,
+              submitted_at: args.submit ? nowIso : null,
+            })
+            .eq("id", existingMonthRecord.id)
+            .select("id, year, month, week_number, status, employee_notes, manager_comments, manager_id")
+            .single();
+          if (error) throw error;
+          refreshedMonthRows.push(updated as TsRow);
+        } else {
+          const { data: inserted, error } = await (supabase.from as any)("timesheets")
+            .insert({
+              employee_id: userId,
+              year: args.targetYear,
+              month: args.targetMonth,
+              week_number: 0,
+              status: monthStatus,
+              manager_id: args.nextManagerId || null,
+              employee_notes: args.nextNotes || null,
+              submitted_at: args.submit ? nowIso : null,
+            })
+            .select("id, year, month, week_number, status, employee_notes, manager_comments, manager_id")
+            .single();
+          if (error) throw error;
+          refreshedMonthRows.push(inserted as TsRow);
+        }
+      }
+
+      setLocalTimesheets((prev) =>
+        mergeTimesheetsForPeriod(prev, [...refreshedWeeks, ...refreshedMonthRows], args.targetYear, args.targetMonth)
+      );
+
       return true;
-    } catch { return false; }
+    } catch (error) {
+      if (!args.silent) {
+        console.error("Failed to persist timesheet period:", error);
+      }
+      return false;
+    }
+  }
+
+  async function copyFromPreviousMonth() {
+    if (!userId) return false;
+    const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
+    const prevYear = selectedMonth === 1 ? selectedYear - 1 : selectedYear;
+    const { data, error }: any = await (supabase.from as any)("timesheets")
+      .select(`
+        week_number, draft_payload,
+        timesheet_rows(
+          id, timesheet_id, billing_type_id, project_id, sun, mon, tue, wed, thu, fri, sat, weekly_total,
+          sun_location, mon_location, tue_location, wed_location, thu_location, fri_location, sat_location,
+          billing_type:billing_types(name),
+          project:projects(code, title)
+        )
+      `)
+      .eq("employee_id", userId)
+      .eq("year", prevYear)
+      .eq("month", prevMonth)
+      .gt("week_number", 0)
+      .order("week_number");
+
+    if (error || !(data ?? []).length) return false;
+
+    const previousEntries = buildMonthDayEntriesFromTimesheets({
+      timesheets: data ?? [],
+      year: prevYear,
+      month: prevMonth,
+    });
+    const prevDaysInMonth = new Date(prevYear, prevMonth, 0).getDate();
+    const curDaysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+    const mapped: Record<number, TimesheetDayEntry[]> = {};
+
+    for (let day = 1; day <= curDaysInMonth; day += 1) {
+      const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
+      for (let previousDay = 1; previousDay <= prevDaysInMonth; previousDay += 1) {
+        const previousWeekday = new Date(prevYear, prevMonth - 1, previousDay).getDay();
+        const entries = previousEntries[previousDay] ?? [];
+        if (previousWeekday === weekday && entries.some(hasAnyTimesheetEntryValue)) {
+          mapped[day] = entries.map((entry) => ({ ...entry }));
+          break;
+        }
+      }
+    }
+
+    if (Object.keys(mapped).length === 0) return false;
+    setDayEntries(mapped);
+    return true;
   }
 
   // Derive selectedTs early so notes can sync
-  const monthTs     = localTimesheets.filter(t => t.year === selectedYear && t.month === selectedMonth);
-  const selectedTs  = monthTs.find(t => t.week_number === activeWeek);
+  const monthTs = localTimesheets.filter(t => t.year === selectedYear && t.month === selectedMonth);
+  const weekTs = monthTs.filter((timesheet) => timesheet.week_number > 0);
+  const selectedTs = weekTs.find((timesheet) => timesheet.week_number === activeWeek);
+  const billingLabelById = useMemo(
+    () => Object.fromEntries(billingOptions.map((option) => [option.id, option.label])),
+    [billingOptions]
+  );
+  const locationLabelById = useMemo(
+    () => Object.fromEntries(locationOptions.map((option) => [option.id, option.label])),
+    [locationOptions]
+  );
 
-  const emptyEntry: DayEntry = { billingType: "", project: "", hours: "", manager: "", mileage: "", meals: "", lodging: "", other: "" };
+  const emptyEntry = emptyTimesheetDayEntry();
   const curEntry = selectedDay != null ? (dayEntries[selectedDay]?.[selectedEntryIdx] ?? emptyEntry) : null;
-  function updateEntry(field: keyof DayEntry, value: string) {
+  function updateEntry(field: keyof TimesheetDayEntry, value: string) {
     if (selectedDay == null) return;
     setDayEntries(prev => {
       const arr = [...(prev[selectedDay] ?? [emptyEntry])];
@@ -313,11 +658,11 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
   }
 
   const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
-  const numWeeks    = Math.min(Math.ceil(daysInMonth / 7), 5);
+  const numWeeks = getTimesheetWeekCount(selectedYear, selectedMonth);
 
-  const approvedCnt       = monthTs.filter(t => t.status === "approved").length;
-  const submittedCnt      = monthTs.filter(t => t.status === "submitted").length;
-  const submittedOrBetter = monthTs.filter(t => ["approved","submitted","draft"].includes(t.status ?? "")).length;
+  const approvedCnt = weekTs.filter(t => t.status === "approved").length;
+  const submittedCnt = weekTs.filter(t => t.status === "submitted").length;
+  const submittedOrBetter = weekTs.filter(t => ["approved", "submitted", "draft"].includes(t.status ?? "")).length;
   const today             = new Date();
   const currentYear       = today.getFullYear();
   const currentMonth      = today.getMonth() + 1;
@@ -354,61 +699,28 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
   // ── Submit / Approve / Reject handlers (month-level) ──────────────────────
   async function handleSubmitMonth() {
     if (!userId || submitting) return;
-    // Block submit without a selected manager
     if (!selectedManager) {
       alert("Please select a manager before submitting.");
       return;
     }
     setSubmitting(true);
     try {
-      const managerId: string | null = selectedManager;
-
-      const { data: existing, error: existErr }: any = await (supabase as any)
-        .from("timesheets")
-        .select("id")
-        .eq("employee_id", userId)
-        .eq("year", selectedYear)
-        .eq("month", selectedMonth)
-        .eq("week_number", 0)
-        .maybeSingle();
-      if (existErr) throw existErr;
-
-      const now = new Date().toISOString();
-
-      if (existing?.id) {
-        const { error: upErr } = await (supabase as any).from("timesheets").update({
-          status: "submitted",
-          employee_notes: monthNotes || null,
-          manager_id: managerId,
-          submitted_at: now,
-        }).eq("id", existing.id);
-        if (upErr) throw upErr;
-      } else {
-        const { error: insErr } = await (supabase as any).from("timesheets").insert({
-          employee_id: userId,
-          year: selectedYear,
-          month: selectedMonth,
-          week_number: 0,
-          status: "submitted",
-          employee_notes: monthNotes || null,
-          manager_id: managerId,
-          submitted_at: now,
-        });
-        if (insErr) throw insErr;
-      }
-
-      setLocalTimesheets(prev => {
-        const idx = prev.findIndex(t => t.year === selectedYear && t.month === selectedMonth && t.week_number === 0);
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = { ...updated[idx], status: "submitted", employee_notes: monthNotes || null };
-          return updated;
-        }
-        return [...prev, { id: "temp-" + Date.now(), year: selectedYear, month: selectedMonth, week_number: 0, status: "submitted", employee_notes: monthNotes || null, manager_comments: null }];
+      const didPersist = await persistDraftPeriod({
+        targetYear: selectedYear,
+        targetMonth: selectedMonth,
+        nextEntries: dayEntries,
+        nextNotes: monthNotes,
+        nextManagerId: selectedManager,
+        submit: true,
       });
+      if (!didPersist) {
+        throw new Error("Unable to submit this month.");
+      }
+      loadedSnapshotRef.current = buildPeriodSnapshot(dayEntries, monthNotes, selectedManager);
       router.refresh();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Submit failed:", err);
+      alert(err?.message ?? "Unable to submit this month.");
     } finally {
       setSubmitting(false);
     }
@@ -418,18 +730,13 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     if (!monthRecord?.id || submitting) return;
     setSubmitting(true);
     try {
-      const { error: recallErr } = await (supabase as any).from("timesheets").update({
-        status: "draft",
-        submitted_at: null,
-      }).eq("id", monthRecord.id);
-      if (recallErr) throw recallErr;
-
-      setLocalTimesheets(prev =>
-        prev.map(t => t.id === monthRecord.id ? { ...t, status: "draft" } : t)
-      );
+      const res = await fetch(`/api/timesheets/${monthRecord.id}/recall`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Recall failed");
       router.refresh();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Recall failed:", err);
+      alert(err?.message ?? "Unable to recall this month.");
     } finally {
       setSubmitting(false);
     }
@@ -513,8 +820,8 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
         <div className="flex-1" />
         <button
           type="button"
-          onClick={() => {
-            if (copyFromPreviousMonth()) {
+          onClick={async () => {
+            if (await copyFromPreviousMonth()) {
               alert("Entries copied from previous month!");
             } else {
               alert("No entries found in previous month to copy.");
@@ -594,7 +901,13 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
               return (
                 <button
                   key={w}
-                  onClick={() => setActiveWeek(w)}
+                  onClick={() => {
+                    setActiveWeek(w);
+                    setSelectedEntryIdx(0);
+                    setSelectedDay(resolveSelectedDayForWeek(w, dayEntries, selectedDay));
+                    setEditingBilling(false);
+                    setEditingLocation(false);
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-bold transition-all flex-1 justify-center ${
                     isActive
                       ? "bg-primary text-white shadow-md"
@@ -682,7 +995,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
               for (let d = startDay; d <= endDay; d++) {
                 const entries = dayEntries[d] ?? [];
                 entries.forEach((entry, idx) => {
-                  const hasFill = entry.hours || entry.project || entry.billingType;
+                  const hasFill = entry.hours || entry.projectId || entry.billingTypeId;
                   const isSel = d === selectedDay && idx === selectedEntryIdx;
                   if (hasFill || isSel) {
                     filledItems.push({ day: d, entryIdx: idx, dow: new Date(selectedYear, selectedMonth - 1, d).getDay(), isSelected: isSel, key: `${d}-${idx}` });
@@ -774,19 +1087,19 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                                   onClick={() => { setEditingLocation(!editingLocation); setEditingBilling(false); }}
                                   className="text-[13px] leading-tight font-semibold text-white cursor-pointer whitespace-nowrap"
                                 >
-                                  {entry.project || "Location"}
+                                  {locationLabelById[entry.projectId] || "Location"}
                                 </button>
                                 {editingLocation && (
                                   <>
                                   <div className="fixed inset-0 z-40" onClick={() => setEditingLocation(false)} />
                                   <div className="absolute bottom-full left-0 mb-1 z-50 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[200px] max-h-[180px] overflow-y-auto">
-                                    {LOCATIONS.map(loc => (
+                                    {locationOptions.map((location) => (
                                       <button
-                                        key={loc}
-                                        onClick={() => { updateEntry("project", loc); setEditingLocation(false); }}
-                                        className={`w-full text-left px-3 py-2 text-[13px] hover:bg-primary/10 transition-colors ${entry.project === loc ? "text-primary font-semibold bg-primary/5" : "text-gray-700"}`}
+                                        key={location.id}
+                                        onClick={() => { updateEntry("projectId", location.id); setEditingLocation(false); }}
+                                        className={`w-full text-left px-3 py-2 text-[13px] hover:bg-primary/10 transition-colors ${entry.projectId === location.id ? "text-primary font-semibold bg-primary/5" : "text-gray-700"}`}
                                       >
-                                        {loc}
+                                        {location.label}
                                       </button>
                                     ))}
                                   </div>
@@ -794,7 +1107,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                                 )}
                               </>
                             ) : (
-                              <span className="text-[13px] leading-tight font-semibold text-white whitespace-nowrap">{entry.project || "Location"}</span>
+                              <span className="text-[13px] leading-tight font-semibold text-white whitespace-nowrap">{locationLabelById[entry.projectId] || "Location"}</span>
                             )}
                           </div>
                           <div className="relative -mt-0.5">
@@ -804,19 +1117,19 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                                   onClick={() => { setEditingBilling(!editingBilling); setEditingLocation(false); }}
                                   className="text-[12px] leading-tight font-medium text-gray-300 cursor-pointer whitespace-nowrap"
                                 >
-                                  {entry.billingType || "Billing Type"}
+                                  {billingLabelById[entry.billingTypeId] || "Billing Type"}
                                 </button>
                                 {editingBilling && (
                                   <>
                                   <div className="fixed inset-0 z-40" onClick={() => setEditingBilling(false)} />
                                   <div className="absolute bottom-full left-0 mb-1 z-50 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[200px] max-h-[180px] overflow-y-auto">
-                                    {BILLING_TYPES.map(bt => (
+                                    {billingOptions.map((billing) => (
                                       <button
-                                        key={bt}
-                                        onClick={() => { updateEntry("billingType", bt); setEditingBilling(false); }}
-                                        className={`w-full text-left px-3 py-2 text-[13px] hover:bg-primary/10 transition-colors ${entry.billingType === bt ? "text-primary font-semibold bg-primary/5" : "text-gray-700"}`}
+                                        key={billing.id}
+                                        onClick={() => { updateEntry("billingTypeId", billing.id); setEditingBilling(false); }}
+                                        className={`w-full text-left px-3 py-2 text-[13px] hover:bg-primary/10 transition-colors ${entry.billingTypeId === billing.id ? "text-primary font-semibold bg-primary/5" : "text-gray-700"}`}
                                       >
-                                        {bt}
+                                        {billing.label}
                                       </button>
                                     ))}
                                   </div>
@@ -824,7 +1137,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                                 )}
                               </>
                             ) : (
-                              <span className="text-[12px] leading-tight font-medium text-gray-300 whitespace-nowrap">{entry.billingType || "Billing Type"}</span>
+                              <span className="text-[12px] leading-tight font-medium text-gray-300 whitespace-nowrap">{billingLabelById[entry.billingTypeId] || "Billing Type"}</span>
                             )}
                           </div>
                         </div>
@@ -1163,8 +1476,8 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                               </span>
                               {entries.filter(e => parseFloat(e.hours || "0") > 0).map((e, ei) => (
                                 <div key={ei} className="flex flex-col">
-                                  <span className="text-[9px] text-gray-500 leading-tight truncate" title={e.project}>{e.project || "—"}</span>
-                                  <span className="text-[9px] text-gray-400 leading-tight truncate" title={e.billingType}>{e.billingType || "—"}</span>
+                                  <span className="text-[9px] text-gray-500 leading-tight truncate" title={locationLabelById[e.projectId]}>{locationLabelById[e.projectId] || "—"}</span>
+                                  <span className="text-[9px] text-gray-400 leading-tight truncate" title={billingLabelById[e.billingTypeId]}>{billingLabelById[e.billingTypeId] || "—"}</span>
                                 </div>
                               ))}
                             </div>

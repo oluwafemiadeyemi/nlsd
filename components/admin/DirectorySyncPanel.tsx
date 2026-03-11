@@ -13,6 +13,7 @@ interface SyncRun {
   finished_at: string | null;
   status: string;
   users_fetched: number;
+  profiles_provisioned: number;
   profiles_updated: number;
   manager_links_upserted: number;
   role_grants_upserted: number;
@@ -92,7 +93,7 @@ export function DirectorySyncPanel({ runs: initialRuns, activeUserCount, roleMap
       if (result.ok) {
         toast({
           title: "Sync complete",
-          description: `${result.profilesUpdated ?? 0} profiles updated, ${result.rolesRemoved ?? 0} roles removed.`,
+          description: `${result.profilesProvisioned ?? 0} provisioned, ${result.profilesUpdated ?? 0} updated, ${result.rolesRemoved ?? 0} roles removed.`,
           variant: "success",
         });
         router.refresh();
@@ -161,7 +162,7 @@ export function DirectorySyncPanel({ runs: initialRuns, activeUserCount, roleMap
         <h3 className="text-sm font-semibold mb-3">Sync Run History</h3>
         {runs.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">
-            No sync runs yet. Click "Sync Now" to trigger the first sync.
+            No sync runs yet. Click &ldquo;Sync Now&rdquo; to trigger the first sync.
           </p>
         ) : (
           <div className="rounded-xl border border-border overflow-hidden">
@@ -172,7 +173,8 @@ export function DirectorySyncPanel({ runs: initialRuns, activeUserCount, roleMap
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                     <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Started</th>
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Users</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Profiles</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">New</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Updated</th>
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Managers</th>
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Grants</th>
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Removed</th>
@@ -202,6 +204,7 @@ export function DirectorySyncPanel({ runs: initialRuns, activeUserCount, roleMap
                           {format(new Date(run.started_at), "MMM d, yyyy 'at' h:mm a")}
                         </td>
                         <td className="px-4 py-2.5 text-xs text-right tabular-nums">{run.users_fetched}</td>
+                        <td className="px-4 py-2.5 text-xs text-right tabular-nums">{run.profiles_provisioned ?? 0}</td>
                         <td className="px-4 py-2.5 text-xs text-right tabular-nums">{run.profiles_updated}</td>
                         <td className="px-4 py-2.5 text-xs text-right tabular-nums">{run.manager_links_upserted}</td>
                         <td className="px-4 py-2.5 text-xs text-right tabular-nums">{run.role_grants_upserted}</td>
