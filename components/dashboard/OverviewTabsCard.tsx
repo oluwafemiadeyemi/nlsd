@@ -964,7 +964,8 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                 entries.forEach((entry, idx) => {
                   const hasFill = entry.hours || entry.projectId || entry.billingTypeId;
                   const isSel = d === selectedDay && idx === selectedEntryIdx;
-                  if (hasFill || isSel) {
+                  // Show if it has data, is selected, or the day has multiple entries (user added extra rows)
+                  if (hasFill || isSel || entries.length > 1) {
                     filledItems.push({ day: d, entryIdx: idx, dow: new Date(selectedYear, selectedMonth - 1, d).getDay(), isSelected: isSel, key: `${d}-${idx}` });
                   }
                 });

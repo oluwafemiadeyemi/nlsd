@@ -15,16 +15,25 @@ export default async function PeoplePage() {
   const role = await getCurrentUserRole();
   if (role !== "admin") redirect("/dashboard");
 
-  const { data: people }: any = await supabase
+  // Only show profiles that have a directory_members entry with an office_location
+  const { data: allPeople }: any = await supabase
     .from("profiles")
     .select(`
       id, display_name, email, department, job_title,
       user_roles(role),
       employee_manager!employee_manager_employee_id_fkey(
         manager:profiles!employee_manager_manager_id_fkey(display_name)
-      )
+      ),
+      directory_members!directory_members_profile_id_fkey(office_location)
     `)
     .order("display_name");
+
+  const people = (allPeople ?? []).filter((p: any) => {
+    const name = (p.display_name ?? "").trim();
+    if (!name || !/^[a-zA-Z]/.test(name)) return false;
+    const dm = p.directory_members?.[0];
+    return dm?.office_location != null;
+  });
 
   return (
     <div className="flex flex-col h-full">
