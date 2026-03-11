@@ -399,7 +399,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
               if (!nextEntries[calDay]) nextEntries[calDay] = [emptyTimesheetDayEntry()];
               const target = nextEntries[calDay][0];
               target.mileageKm = entry.mileage_km > 0 ? String(entry.mileage_km) : "";
-              target.mileage = entry.mileage_cost_claimed > 0 ? String(entry.mileage_cost_claimed) : "";
+              target.mileage = entry.mileage_cost > 0 ? String(entry.mileage_cost) : "";
               target.breakfast = entry.breakfast_amount > 0 ? String(entry.breakfast_amount) : "";
               target.lunch = entry.lunch_amount > 0 ? String(entry.lunch_amount) : "";
               target.dinner = entry.dinner_amount > 0 ? String(entry.dinner_amount) : "";
@@ -756,7 +756,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                 day_index: dayIndex,
                 entry_date: entryDateStr,
                 mileage_km: parseFloat(entry.mileageKm || "0") || 0,
-                mileage_cost_claimed: parseFloat(entry.mileage || "0") || 0,
+                mileage_cost: parseFloat(entry.mileage || "0") || 0,
                 breakfast_amount: parseFloat(entry.breakfast || "0") || 0,
                 lunch_amount: parseFloat(entry.lunch || "0") || 0,
                 dinner_amount: parseFloat(entry.dinner || "0") || 0,
@@ -1466,7 +1466,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                           className="w-full px-2 py-1.5 text-[13px] font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       </div>
-                      <label className="text-[10px] font-medium text-gray-500 leading-none mt-1 block">Cost ($)</label>
+                      <label className="text-[10px] font-medium text-gray-500 leading-none mt-1 block">Mileage Cost ($)</label>
                       <div className="relative mt-0.5">
                         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
                         <input
