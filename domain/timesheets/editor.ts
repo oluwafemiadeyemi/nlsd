@@ -52,10 +52,15 @@ export interface TimesheetDayEntry {
   billingTypeId: string;
   projectId: string;
   hours: string;
+  mileageKm: string;
   mileage: string;
-  meals: string;
+  breakfast: string;
+  lunch: string;
+  dinner: string;
   lodging: string;
   other: string;
+  /** @deprecated kept for backwards compat with old draft_payload; use breakfast+lunch+dinner */
+  meals?: string;
 }
 
 export interface TimesheetDraftPayload {
@@ -96,8 +101,11 @@ export function emptyTimesheetDayEntry(): TimesheetDayEntry {
     billingTypeId: "",
     projectId: "",
     hours: "",
+    mileageKm: "",
     mileage: "",
-    meals: "",
+    breakfast: "",
+    lunch: "",
+    dinner: "",
     lodging: "",
     other: "",
   };
@@ -123,8 +131,11 @@ export function hasAnyTimesheetEntryValue(entry: TimesheetDayEntry): boolean {
     entry.billingTypeId.trim().length > 0 ||
     entry.projectId.trim().length > 0 ||
     entry.hours.trim().length > 0 ||
+    entry.mileageKm.trim().length > 0 ||
     entry.mileage.trim().length > 0 ||
-    entry.meals.trim().length > 0 ||
+    entry.breakfast.trim().length > 0 ||
+    entry.lunch.trim().length > 0 ||
+    entry.dinner.trim().length > 0 ||
     entry.lodging.trim().length > 0 ||
     entry.other.trim().length > 0
   );
@@ -237,8 +248,11 @@ export function buildMonthDayEntriesFromTimesheets(args: {
           billingTypeId: row.billing_type_id ?? "",
           projectId: row.project_id ?? "",
           hours: formatNumericInput(hours),
+          mileageKm: "",
           mileage: "",
-          meals: "",
+          breakfast: "",
+          lunch: "",
+          dinner: "",
           lodging: "",
           other: "",
         };
@@ -281,12 +295,25 @@ function coerceDayEntry(value: unknown): TimesheetDayEntry | null {
   if (!value || typeof value !== "object") return null;
 
   const candidate = value as Record<string, unknown>;
+  let breakfast = readString(candidate.breakfast);
+  let lunch = readString(candidate.lunch);
+  let dinner = readString(candidate.dinner);
+
+  // Backwards compat: old drafts stored aggregate "meals" instead of B/L/D
+  if (!breakfast && !lunch && !dinner) {
+    const legacyMeals = readString(candidate.meals);
+    if (legacyMeals) dinner = legacyMeals;
+  }
+
   return {
     billingTypeId: readString(candidate.billingTypeId),
     projectId: readString(candidate.projectId),
     hours: readString(candidate.hours),
+    mileageKm: readString(candidate.mileageKm),
     mileage: readString(candidate.mileage),
-    meals: readString(candidate.meals),
+    breakfast,
+    lunch,
+    dinner,
     lodging: readString(candidate.lodging),
     other: readString(candidate.other),
   };

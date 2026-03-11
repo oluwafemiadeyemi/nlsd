@@ -34,7 +34,7 @@ const EXPENSE_STRIPES = [
 ];
 
 const EXPENSE_CATS = [
-  { key: "mileage" as const, label: "Mileage Cost" },
+  { key: "mileage" as const, label: "Mileage" },
   { key: "meals" as const, label: "Meals" },
   { key: "lodging" as const, label: "Lodge" },
   { key: "other" as const, label: "Other" },
@@ -150,6 +150,74 @@ function ManagerCombobox({ managers, value, onChange }: { managers: ManagerOptio
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+function MealsPopover({
+  breakfast, lunch, dinner, mealsTotal,
+  onChangeBreakfast, onChangeLunch, onChangeDinner,
+}: {
+  breakfast: string; lunch: string; dinner: string; mealsTotal: number;
+  onChangeBreakfast: (v: string) => void;
+  onChangeLunch: (v: string) => void;
+  onChangeDinner: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  const inputCls = "w-full pl-5 pr-1 py-1.5 text-[13px] font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
+  return (
+    <div className="relative" ref={ref}>
+      <label className="text-[10px] font-medium text-gray-500 leading-none">Meals</label>
+      <div className="relative mt-0.5">
+        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
+        <input
+          type="text"
+          readOnly
+          value={mealsTotal > 0 ? mealsTotal.toFixed(2) : ""}
+          placeholder="0"
+          onClick={() => setOpen(true)}
+          className="w-full pl-5 pr-1 py-1.5 text-[13px] font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg text-right outline-none cursor-pointer hover:border-gray-300 focus:ring-2 focus:ring-primary/30 focus:border-primary"
+        />
+      </div>
+      {open && (
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg p-2.5 min-w-[140px]">
+          <div className="space-y-1.5">
+            <div>
+              <label className="text-[10px] font-medium text-gray-500">Breakfast</label>
+              <div className="relative mt-0.5">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
+                <input type="number" min="0" step="0.01" value={breakfast} onChange={e => onChangeBreakfast(e.target.value)} placeholder="0" className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-medium text-gray-500">Lunch</label>
+              <div className="relative mt-0.5">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
+                <input type="number" min="0" step="0.01" value={lunch} onChange={e => onChangeLunch(e.target.value)} placeholder="0" className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-medium text-gray-500">Dinner</label>
+              <div className="relative mt-0.5">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
+                <input type="number" min="0" step="0.01" value={dinner} onChange={e => onChangeDinner(e.target.value)} placeholder="0" className={inputCls} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -292,6 +360,57 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
         year: selectedYear,
         month: selectedMonth,
       });
+
+      // Load expense data from expense_entries and merge into day entries
+      try {
+        const { data: expReports }: any = await (supabase.from as any)("expense_reports")
+          .select("id, week_number, expense_entries(*)")
+          .eq("employee_id", userId)
+          .eq("year", selectedYear)
+          .eq("month", selectedMonth);
+
+        if (!cancelled && expReports) {
+          const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+          for (const report of expReports) {
+            const weekNum = typeof report.week_number === "string"
+              ? parseInt(report.week_number, 10)
+              : report.week_number;
+            for (const entry of report.expense_entries ?? []) {
+              // day_index 0=Mon..5=Sat → calendar day
+              const weekStartDay = (weekNum - 1) * 7 + 1;
+              // day_index 0=Mon means offset +0 from Monday of that block
+              // But the block starts on day 1 of month (not necessarily Monday)
+              // We use entry_date to find the exact calendar day
+              const entryDate = entry.entry_date ? new Date(entry.entry_date + "T00:00:00") : null;
+              let calDay: number | null = null;
+              if (entryDate && entryDate.getFullYear() === selectedYear && entryDate.getMonth() + 1 === selectedMonth) {
+                calDay = entryDate.getDate();
+              } else {
+                // Fallback: compute from week block + day_index offset
+                const d = new Date(selectedYear, selectedMonth - 1, weekStartDay);
+                const dayOfWeek = d.getDay(); // 0=Sun..6=Sat
+                const mondayOffset = dayOfWeek === 0 ? 1 : (dayOfWeek === 1 ? 0 : 8 - dayOfWeek);
+                const computedDay = weekStartDay + mondayOffset + entry.day_index;
+                if (computedDay >= 1 && computedDay <= daysInMonth) calDay = computedDay;
+              }
+              if (calDay == null || calDay < 1 || calDay > daysInMonth) continue;
+
+              // Merge expense fields into the first entry for this day
+              if (!nextEntries[calDay]) nextEntries[calDay] = [emptyTimesheetDayEntry()];
+              const target = nextEntries[calDay][0];
+              target.mileageKm = entry.mileage_km > 0 ? String(entry.mileage_km) : "";
+              target.mileage = entry.mileage_cost_claimed > 0 ? String(entry.mileage_cost_claimed) : "";
+              target.breakfast = entry.breakfast_amount > 0 ? String(entry.breakfast_amount) : "";
+              target.lunch = entry.lunch_amount > 0 ? String(entry.lunch_amount) : "";
+              target.dinner = entry.dinner_amount > 0 ? String(entry.dinner_amount) : "";
+              target.lodging = entry.lodging_amount > 0 ? String(entry.lodging_amount) : "";
+              target.other = entry.other_amount > 0 ? String(entry.other_amount) : "";
+            }
+          }
+        }
+      } catch (expErr) {
+        console.error("Failed to load expense entries:", expErr);
+      }
       const nextMonthRecord = fetched.find((item) => item.week_number === 0);
       const resolvedManager =
         nextMonthRecord?.manager_id ??
@@ -565,6 +684,91 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
       setLocalTimesheets((prev) =>
         mergeTimesheetsForPeriod(prev, [...refreshedWeeks, ...refreshedMonthRows], args.targetYear, args.targetMonth)
       );
+
+      // ── Sync expense data to expense_entries ──
+      try {
+        const daysInMonth = new Date(args.targetYear, args.targetMonth, 0).getDate();
+        // Group days by expense week
+        const weekDays: Record<number, { calDay: number; entry: TimesheetDayEntry }[]> = {};
+        for (const [dayStr, entries] of Object.entries(args.nextEntries)) {
+          const calDay = Number(dayStr);
+          if (calDay < 1 || calDay > daysInMonth || !entries[0]) continue;
+          const e = entries[0];
+          const hasExpense = (parseFloat(e.mileageKm || "0") || 0) > 0 ||
+            (parseFloat(e.mileage || "0") || 0) > 0 ||
+            (parseFloat(e.breakfast || "0") || 0) > 0 ||
+            (parseFloat(e.lunch || "0") || 0) > 0 ||
+            (parseFloat(e.dinner || "0") || 0) > 0 ||
+            (parseFloat(e.lodging || "0") || 0) > 0 ||
+            (parseFloat(e.other || "0") || 0) > 0;
+          if (!hasExpense) continue;
+          const weekNum = Math.min(Math.ceil(calDay / 7), 5);
+          if (!weekDays[weekNum]) weekDays[weekNum] = [];
+          weekDays[weekNum].push({ calDay, entry: e });
+        }
+
+        for (const [weekStr, days] of Object.entries(weekDays)) {
+          const weekNum = Number(weekStr);
+          const paddedWeek = String(weekNum).padStart(2, "0");
+          const weekStartDay = (weekNum - 1) * 7 + 1;
+          const wbDate = new Date(args.targetYear, args.targetMonth - 1, weekStartDay);
+          const wbDateStr = `${args.targetYear}-${String(args.targetMonth).padStart(2, "0")}-${String(weekStartDay).padStart(2, "0")}`;
+
+          // Find or create expense_report for this week
+          let { data: report }: any = await (supabase.from as any)("expense_reports")
+            .select("id, status")
+            .eq("employee_id", userId)
+            .eq("year", args.targetYear)
+            .eq("month", args.targetMonth)
+            .eq("week_number", paddedWeek)
+            .maybeSingle();
+
+          if (!report) {
+            const { data: created, error: createErr } = await (supabase.from as any)("expense_reports")
+              .insert({
+                employee_id: userId,
+                year: args.targetYear,
+                month: args.targetMonth,
+                week_number: paddedWeek,
+                week_beginning_date: wbDateStr,
+                status: "draft",
+                manager_id: args.nextManagerId || null,
+              })
+              .select("id, status")
+              .single();
+            if (createErr) { console.error("Failed to create expense report:", createErr); continue; }
+            report = created;
+          }
+
+          // Don't overwrite submitted/approved expense reports
+          if (report.status !== "draft" && report.status !== "rejected" && report.status !== "manager_rejected") continue;
+
+          for (const { calDay, entry } of days) {
+            const date = new Date(args.targetYear, args.targetMonth - 1, calDay);
+            const dow = date.getDay(); // 0=Sun..6=Sat
+            const dayIndex = dow === 0 ? -1 : dow - 1; // 0=Mon..5=Sat, -1=Sun
+            if (dayIndex < 0 || dayIndex > 5) continue;
+
+            const entryDateStr = `${args.targetYear}-${String(args.targetMonth).padStart(2, "0")}-${String(calDay).padStart(2, "0")}`;
+            await (supabase.from as any)("expense_entries")
+              .upsert({
+                report_id: report.id,
+                day_index: dayIndex,
+                entry_date: entryDateStr,
+                mileage_km: parseFloat(entry.mileageKm || "0") || 0,
+                mileage_cost_claimed: parseFloat(entry.mileage || "0") || 0,
+                breakfast_amount: parseFloat(entry.breakfast || "0") || 0,
+                lunch_amount: parseFloat(entry.lunch || "0") || 0,
+                dinner_amount: parseFloat(entry.dinner || "0") || 0,
+                lodging_amount: parseFloat(entry.lodging || "0") || 0,
+                other_amount: parseFloat(entry.other || "0") || 0,
+              }, { onConflict: "report_id,day_index" });
+          }
+        }
+      } catch (expErr) {
+        // Non-fatal: expense sync failure shouldn't block timesheet save
+        console.error("Expense sync failed:", expErr);
+      }
 
       return true;
     } catch (error) {
@@ -1147,7 +1351,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                       const amts = [0, 0, 0, 0];
                       for (const exp of entries) {
                         amts[0] += parseFloat(exp.mileage || "0") || 0;
-                        amts[1] += parseFloat(exp.meals || "0") || 0;
+                        amts[1] += (parseFloat(exp.breakfast || "0") || 0) + (parseFloat(exp.lunch || "0") || 0) + (parseFloat(exp.dinner || "0") || 0);
                         amts[2] += parseFloat(exp.lodging || "0") || 0;
                         amts[3] += parseFloat(exp.other || "0") || 0;
                       }
@@ -1220,13 +1424,15 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
             {/* ── Daily Expense Input — dashboard card style ── */}
             {selectedDay != null && (() => {
               const exp = dayEntries[selectedDay]?.[selectedEntryIdx] ?? emptyEntry;
-              const amts = [
-                parseFloat(exp.mileage || "0") || 0,
-                parseFloat(exp.meals || "0") || 0,
-                parseFloat(exp.lodging || "0") || 0,
-                parseFloat(exp.other || "0") || 0,
-              ];
-              const total = amts[0] + amts[1] + amts[2] + amts[3];
+              const mileageCost = parseFloat(exp.mileage || "0") || 0;
+              const bAmt = parseFloat(exp.breakfast || "0") || 0;
+              const lAmt = parseFloat(exp.lunch || "0") || 0;
+              const dAmt = parseFloat(exp.dinner || "0") || 0;
+              const mealsTotal = bAmt + lAmt + dAmt;
+              const lodgingAmt = parseFloat(exp.lodging || "0") || 0;
+              const otherAmt = parseFloat(exp.other || "0") || 0;
+              const total = mileageCost + mealsTotal + lodgingAmt + otherAmt;
+              const amts = [mileageCost, mealsTotal, lodgingAmt, otherAmt];
               const cats = amts.map((a, idx) => ({ amount: a, idx, ...EXPENSE_CATS[idx] })).filter(c => c.amount > 0);
 
               return (
@@ -1246,23 +1452,79 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
 
                   {/* Category inputs */}
                   <div className="grid grid-cols-4 gap-2 mb-2">
-                    {EXPENSE_CATS.map((cat, idx) => (
-                      <div key={cat.key}>
-                        <label className="text-[10px] font-medium text-gray-500 leading-none">{cat.label}</label>
-                        <div className="relative mt-0.5">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={exp[cat.key] ?? ""}
-                            onChange={e => updateEntry(cat.key, e.target.value)}
-                            placeholder="0"
-                            className="w-full pl-5 pr-1 py-1.5 text-[13px] font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                          />
-                        </div>
+                    {/* Mileage — KM + Cost stacked */}
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-500 leading-none">Mileage (km)</label>
+                      <div className="relative mt-0.5">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={exp.mileageKm ?? ""}
+                          onChange={e => updateEntry("mileageKm", e.target.value)}
+                          placeholder="0"
+                          className="w-full px-2 py-1.5 text-[13px] font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       </div>
-                    ))}
+                      <label className="text-[10px] font-medium text-gray-500 leading-none mt-1 block">Cost ($)</label>
+                      <div className="relative mt-0.5">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={exp.mileage ?? ""}
+                          onChange={e => updateEntry("mileage", e.target.value)}
+                          placeholder="0"
+                          className="w-full pl-5 pr-1 py-1.5 text-[13px] font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Meals — shows total, expands to B/L/D */}
+                    <MealsPopover
+                      breakfast={exp.breakfast ?? ""}
+                      lunch={exp.lunch ?? ""}
+                      dinner={exp.dinner ?? ""}
+                      mealsTotal={mealsTotal}
+                      onChangeBreakfast={v => updateEntry("breakfast", v)}
+                      onChangeLunch={v => updateEntry("lunch", v)}
+                      onChangeDinner={v => updateEntry("dinner", v)}
+                    />
+
+                    {/* Lodging */}
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-500 leading-none">Lodge</label>
+                      <div className="relative mt-0.5">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={exp.lodging ?? ""}
+                          onChange={e => updateEntry("lodging", e.target.value)}
+                          placeholder="0"
+                          className="w-full pl-5 pr-1 py-1.5 text-[13px] font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Other */}
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-500 leading-none">Other</label>
+                      <div className="relative mt-0.5">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={exp.other ?? ""}
+                          onChange={e => updateEntry("other", e.target.value)}
+                          placeholder="0"
+                          className="w-full pl-5 pr-1 py-1.5 text-[13px] font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {/* Proportional stripe bars — labels + bars */}
