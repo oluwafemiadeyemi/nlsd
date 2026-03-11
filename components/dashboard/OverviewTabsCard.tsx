@@ -172,6 +172,8 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
   // Note: this component always shows the current user's OWN timesheets.
   // Approval of other employees' timesheets happens via /approvals/[id].
   const loadedSnapshotRef = useRef("");
+  const saveTimeoutRef = useRef<number | null>(null);
+  const pendingSaveRef = useRef<(() => void) | null>(null);
 
   // Sync localTimesheets when server data changes
   useEffect(() => { setLocalTimesheets(realTimesheets); }, [realTimesheets]);
@@ -309,13 +311,17 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     };
   }, [defaultManagerId, selectedMonth, selectedYear, supabase, userId]);
 
-  // Auto-save notes — always writes to the ref key
+  // Auto-save entries — debounced 600ms, flushes on beforeunload
   useEffect(() => {
     if (!userId || !periodReady || !dbSupportsMonth) return;
     const nextSnapshot = buildPeriodSnapshot(dayEntries, monthNotes, selectedManager);
-    if (nextSnapshot === loadedSnapshotRef.current) return;
+    if (nextSnapshot === loadedSnapshotRef.current) {
+      pendingSaveRef.current = null;
+      return;
+    }
 
-    const timeoutId = window.setTimeout(() => {
+    const doSave = () => {
+      pendingSaveRef.current = null;
       void persistDraftPeriod({
         targetYear: selectedYear,
         targetMonth: selectedMonth,
@@ -328,10 +334,27 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
           loadedSnapshotRef.current = nextSnapshot;
         }
       });
-    }, 600);
+    };
 
-    return () => window.clearTimeout(timeoutId);
+    pendingSaveRef.current = doSave;
+    if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = window.setTimeout(doSave, 600);
+
+    return () => {
+      if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    };
   }, [dayEntries, monthNotes, periodReady, selectedManager, selectedMonth, selectedYear, userId]);
+
+  // Flush pending save on page unload (refresh / navigate away)
+  useEffect(() => {
+    function handleBeforeUnload() {
+      if (pendingSaveRef.current) {
+        pendingSaveRef.current();
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   // Switch month/year: save current data first, then load the new month
   function switchPeriod(newMonth: number, newYear: number) {
