@@ -52,6 +52,8 @@ export interface TimesheetDayEntry {
   billingTypeId: string;
   projectId: string;
   hours: string;
+  travelFrom: string;
+  travelTo: string;
   mileageKm: string;
   mileage: string;
   breakfast: string;
@@ -101,6 +103,8 @@ export function emptyTimesheetDayEntry(): TimesheetDayEntry {
     billingTypeId: "",
     projectId: "",
     hours: "",
+    travelFrom: "",
+    travelTo: "",
     mileageKm: "",
     mileage: "",
     breakfast: "",
@@ -248,6 +252,8 @@ export function buildMonthDayEntriesFromTimesheets(args: {
           billingTypeId: row.billing_type_id ?? "",
           projectId: row.project_id ?? "",
           hours: formatNumericInput(hours),
+          travelFrom: "",
+          travelTo: "",
           mileageKm: "",
           mileage: "",
           breakfast: "",
@@ -309,6 +315,8 @@ function coerceDayEntry(value: unknown): TimesheetDayEntry | null {
     billingTypeId: readString(candidate.billingTypeId),
     projectId: readString(candidate.projectId),
     hours: readString(candidate.hours),
+    travelFrom: readString(candidate.travelFrom),
+    travelTo: readString(candidate.travelTo),
     mileageKm: readString(candidate.mileageKm),
     mileage: readString(candidate.mileage),
     breakfast,

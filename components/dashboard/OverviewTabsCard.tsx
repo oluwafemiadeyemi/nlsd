@@ -398,6 +398,8 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
               // Merge expense fields into the first entry for this day
               if (!nextEntries[calDay]) nextEntries[calDay] = [emptyTimesheetDayEntry()];
               const target = nextEntries[calDay][0];
+              target.travelFrom = entry.travel_from ?? "";
+              target.travelTo = entry.travel_to ?? "";
               target.mileageKm = entry.mileage_km > 0 ? String(entry.mileage_km) : "";
               target.mileage = entry.mileage_cost > 0 ? String(entry.mileage_cost) : "";
               target.breakfast = entry.breakfast_amount > 0 ? String(entry.breakfast_amount) : "";
@@ -694,7 +696,9 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
           const calDay = Number(dayStr);
           if (calDay < 1 || calDay > daysInMonth || !entries[0]) continue;
           const e = entries[0];
-          const hasExpense = (parseFloat(e.mileageKm || "0") || 0) > 0 ||
+          const hasExpense = (e.travelFrom || "").trim().length > 0 ||
+            (e.travelTo || "").trim().length > 0 ||
+            (parseFloat(e.mileageKm || "0") || 0) > 0 ||
             (parseFloat(e.mileage || "0") || 0) > 0 ||
             (parseFloat(e.breakfast || "0") || 0) > 0 ||
             (parseFloat(e.lunch || "0") || 0) > 0 ||
@@ -755,6 +759,8 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                 report_id: report.id,
                 day_index: dayIndex,
                 entry_date: entryDateStr,
+                travel_from: entry.travelFrom || null,
+                travel_to: entry.travelTo || null,
                 mileage_km: parseFloat(entry.mileageKm || "0") || 0,
                 mileage_cost: parseFloat(entry.mileage || "0") || 0,
                 breakfast_amount: parseFloat(entry.breakfast || "0") || 0,
@@ -1448,6 +1454,30 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                     <span className="text-[32px] font-extrabold text-gray-900 leading-none tracking-tight">
                       ${total.toFixed(0)}
                     </span>
+                  </div>
+
+                  {/* Travel From / To */}
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-500 leading-none">From</label>
+                      <input
+                        type="text"
+                        value={exp.travelFrom ?? ""}
+                        onChange={e => updateEntry("travelFrom", e.target.value)}
+                        placeholder="Origin"
+                        className="mt-0.5 w-full px-2 py-1.5 text-[13px] font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-500 leading-none">To</label>
+                      <input
+                        type="text"
+                        value={exp.travelTo ?? ""}
+                        onChange={e => updateEntry("travelTo", e.target.value)}
+                        placeholder="Destination"
+                        className="mt-0.5 w-full px-2 py-1.5 text-[13px] font-medium text-gray-800 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      />
+                    </div>
                   </div>
 
                   {/* Category inputs */}

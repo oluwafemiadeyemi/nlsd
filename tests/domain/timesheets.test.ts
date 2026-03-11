@@ -37,7 +37,7 @@ describe("timesheet editor helpers", () => {
 
     expect(buildWeekDraftPayload(dayEntries, 2026, 3, 2)).toEqual({
       dayEntries: {
-        "8": [{ billingTypeId: "bt-1", projectId: "p-1", hours: "8", mileageKm: "", mileage: "", breakfast: "", lunch: "", dinner: "", lodging: "", other: "" }],
+        "8": [{ billingTypeId: "bt-1", projectId: "p-1", hours: "8", travelFrom: "", travelTo: "", mileageKm: "", mileage: "", breakfast: "", lunch: "", dinner: "", lodging: "", other: "" }],
       },
     });
   });
@@ -46,7 +46,7 @@ describe("timesheet editor helpers", () => {
     const rows = buildTimesheetRowsFromEntries({
       timesheetId: "ts-1",
       dayEntries: {
-        8: [{ billingTypeId: "bt-1", projectId: "p-1", hours: "8", mileageKm: "", mileage: "", breakfast: "", lunch: "", dinner: "", lodging: "", other: "" }],
+        8: [{ billingTypeId: "bt-1", projectId: "p-1", hours: "8", travelFrom: "", travelTo: "", mileageKm: "", mileage: "", breakfast: "", lunch: "", dinner: "", lodging: "", other: "" }],
       },
       year: 2026,
       month: 3,
@@ -85,6 +85,8 @@ describe("timesheet editor helpers", () => {
       billingTypeId: "bt-1",
       projectId: "p-1",
       hours: "8",
+      travelFrom: "",
+      travelTo: "",
       mileageKm: "",
       mileage: "10",
       breakfast: "",
