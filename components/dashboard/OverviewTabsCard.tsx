@@ -178,11 +178,11 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
   const [dbSupportsMonth, setDbSupportsMonth] = useState(true);
   const [showSummary, setShowSummary] = useState(false);
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
-  const [approvalComment, setApprovalComment] = useState("");
   const [localTimesheets, setLocalTimesheets] = useState<TsRow[]>(realTimesheets);
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
-  const isManager = userRole === "manager" || userRole === "admin" || userRole === "finance";
+  // Note: this component always shows the current user's OWN timesheets.
+  // Approval of other employees' timesheets happens via /approvals/[id].
   const loadedSnapshotRef = useRef("");
 
   // Sync localTimesheets when server data changes
@@ -742,41 +742,6 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     }
   }
 
-  async function handleApproval(action: "approved" | "rejected") {
-    if (!monthRecord?.id || submitting) return;
-    setSubmitting(true);
-    try {
-      const endpoint = action === "approved" ? "approve" : "reject";
-      const body: any = {};
-      if (action === "rejected") body.managerComments = approvalComment || "Rejected";
-      const res = await fetch(`/api/timesheets/${monthRecord.id}/${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Action failed");
-
-      setLocalTimesheets(prev =>
-        prev.map(t => t.id === monthRecord.id ? { ...t, status: action, manager_comments: approvalComment || null } : t)
-      );
-      setApprovalComment("");
-      router.refresh();
-    } catch (err) {
-      console.error("Approval action failed:", err);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  // Load approval comment from month record
-  useEffect(() => {
-    if (isManager && monthRecord?.manager_comments) {
-      setApprovalComment(monthRecord.manager_comments);
-    } else {
-      setApprovalComment("");
-    }
-  }, [monthRecord?.id]);
 
   return (
     <div className="rounded-2xl bg-white border border-gray-100 shadow-sm p-4 print-timesheet">
@@ -1530,7 +1495,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
           <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
             Notes — {MONTH_NAMES[selectedMonth]} {selectedYear}
           </label>
-          {monthSubmitted && !isManager ? (
+          {monthSubmitted ? (
             <p className="mt-1 text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-2.5 min-h-[2.5rem]">
               {monthNotes || "No notes added."}
             </p>
@@ -1544,36 +1509,8 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
           )}
         </div>
 
-        {/* Approval comments — editable for managers, read-only for employees */}
-        {isManager && monthRecord && ["submitted", "manager_approved", "approved"].includes(monthRecord.status) ? (
-          <div>
-            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-              Approval Comments — {MONTH_NAMES[selectedMonth]} {selectedYear}
-            </label>
-            <textarea
-              value={approvalComment}
-              onChange={(e) => setApprovalComment(e.target.value)}
-              placeholder="Add comments for the employee…"
-              className="mt-1 w-full border border-gray-200 rounded-lg p-2.5 text-sm resize-none h-16 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={() => handleApproval("approved")}
-                disabled={submitting}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50"
-              >
-                {submitting ? "Processing…" : "Approve Month"}
-              </button>
-              <button
-                onClick={() => handleApproval("rejected")}
-                disabled={submitting}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50"
-              >
-                {submitting ? "Processing…" : "Reject"}
-              </button>
-            </div>
-          </div>
-        ) : monthRecord?.manager_comments ? (
+        {/* Approval comments — read-only (managers approve via /approvals) */}
+        {monthRecord?.manager_comments ? (
           <div>
             <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
               Approval Comments
