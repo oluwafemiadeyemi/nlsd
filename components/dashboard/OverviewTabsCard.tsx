@@ -866,6 +866,17 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
     setEditingBilling(false);
     setEditingLocation(false);
   }
+  function removeEntry(day: number, idx: number) {
+    setDayEntries(prev => {
+      const arr = [...(prev[day] ?? [emptyEntry])];
+      if (arr.length <= 1) return prev; // keep at least one
+      arr.splice(idx, 1);
+      return { ...prev, [day]: arr };
+    });
+    setSelectedEntryIdx(0);
+    setEditingBilling(false);
+    setEditingLocation(false);
+  }
 
   const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
   const numWeeks = getTimesheetWeekCount(selectedYear, selectedMonth);
@@ -1208,7 +1219,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
               }
 
               const maxRow = Math.max(0, ...Object.values(rowAssign));
-              const rowHeight = 40;
+              const rowHeight = 50;
               // Check if any day has expense data — need extra height for expense bars below pills
               let hasAnyExpense = false;
               for (let d = startDay; d <= endDay; d++) {
@@ -1220,7 +1231,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                 if (hasAnyExpense) break;
               }
               const expenseExtra = hasAnyExpense ? 30 : 0;
-              const gridHeight = Math.max(160, (maxRow + 1) * rowHeight + 80 + expenseExtra);
+              const gridHeight = Math.max(160, (maxRow + 1) * rowHeight + 100 + expenseExtra);
 
               return (
                 <div className="relative mt-2" style={{ height: gridHeight }}>
@@ -1231,12 +1242,21 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                     const entry = isSelected ? curEntry! : (dayEntries[day]?.[eIdx] ?? emptyEntry);
                     const row = rowAssign[itemKey] ?? 0;
                     const topPx = 4 + row * rowHeight;
+                    const isSameDay = day === selectedDay;
+                    const dayEntryCount = (dayEntries[day] ?? []).length;
+                    const canDelete = isSelected && dayEntryCount > 1;
                     return (
                       <div
                         key={itemKey}
-                        className={`absolute flex items-center gap-2 rounded-full px-3 py-1 shadow-sm w-fit ${isSelected ? "bg-gray-700 z-10" : "bg-gray-700 z-[5] pointer-events-none overflow-hidden"}`}
+                        className={`absolute flex items-center gap-2 rounded-full px-3 py-1 shadow-sm w-fit ${
+                          isSelected
+                            ? "bg-gray-700 z-10"
+                            : isSameDay
+                            ? "bg-gray-700 z-[8] cursor-pointer"
+                            : "bg-gray-700 z-[5] pointer-events-none overflow-hidden"
+                        }`}
                         style={{ left: `${centerPct}%`, transform: `translateX(${translateX})`, top: `${topPx}px` }}
-                        onClick={() => { if (!isSelected) { setSelectedDay(day); setSelectedEntryIdx(eIdx); } }}
+                        onClick={() => { if (!isSelected) { setSelectedDay(day); setSelectedEntryIdx(eIdx); setEditingBilling(false); setEditingLocation(false); } }}
                       >
                         <div className="flex items-baseline shrink-0">
                           {isSelected ? (
@@ -1316,7 +1336,19 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                             )}
                           </div>
                         </div>
-                        {!isSelected && <div className="absolute inset-0 bg-[#dce4f5]/80 rounded-full" />}
+                        {/* Delete button for selected pill (keep at least 1 entry) */}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeEntry(day, eIdx); }}
+                            className="ml-1 w-5 h-5 rounded-full bg-red-500 hover:bg-red-400 text-white flex items-center justify-center shrink-0 transition-colors"
+                            title="Remove this entry"
+                          >
+                            <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg>
+                          </button>
+                        )}
+                        {/* Fade overlay only for pills on OTHER days */}
+                        {!isSelected && !isSameDay && <div className="absolute inset-0 bg-[#dce4f5]/80 rounded-full" />}
                       </div>
                     );
                   })}
@@ -1334,7 +1366,7 @@ export function OverviewTabsCard({ year, month, week, realTimesheets, realExpens
                       }
                     }
                     if (maxDayRow === -1) maxDayRow = 0;
-                    const topPx = 4 + (maxDayRow + 1) * rowHeight - 4;
+                    const topPx = 4 + (maxDayRow + 1) * rowHeight + 8;
                     return (
                       <button
                         type="button"
