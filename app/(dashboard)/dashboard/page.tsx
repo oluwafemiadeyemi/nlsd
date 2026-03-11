@@ -1,12 +1,12 @@
 import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase/server";
 import { fetchDepartmentManagers, resolveDefaultManager } from "@/lib/server/managers";
 import Link from "next/link";
-import { format } from "date-fns";
 import type { Metadata } from "next";
 import { ProfileImageUpload } from "@/components/dashboard/ProfileImageUpload";
 import { MyRequestsCard } from "@/components/dashboard/MyRequestsCard";
 import { OverviewTabsCard } from "@/components/dashboard/OverviewTabsCard";
 import { HoursChart } from "@/components/dashboard/HoursChart";
+import { ClientGreeting } from "@/components/dashboard/ClientGreeting";
 import { currentExpensePeriod, formatExpensePeriodLabel } from "@/domain/expenses/period";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -87,11 +87,6 @@ const MONTH_NAMES = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","O
 function currentPeriod() {
   const n = new Date();
   return { year: n.getFullYear(), month: n.getMonth() + 1, week: Math.min(Math.ceil(n.getDate() / 7), 5) };
-}
-
-function getGreeting() {
-  const h = new Date().getHours();
-  return h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
 }
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
@@ -255,26 +250,13 @@ export default async function DashboardPage() {
           Portal / <span className="text-primary font-medium">Dashboard</span>
         </p>
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Greeting — capped to profile column width */}
-          <h1 className="text-[34px] font-bold text-gray-900 leading-tight">
-            Good {getGreeting()} {firstName}!
-          </h1>
-          <div className="flex-1" />
-          {/* Actions */}
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5">
-              <svg className="w-3.5 h-3.5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/>
-              </svg>
-              {format(new Date(), "MMMM d, yyyy")}
-            </span>
-            <Link href={newExHref} className="flex items-center gap-1.5 bg-gray-900 text-white text-sm font-semibold px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-colors">
-              Quick Add
-              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd"/>
-              </svg>
-            </Link>
-          </div>
+          <ClientGreeting firstName={firstName} />
+          <Link href={newExHref} className="flex items-center gap-1.5 bg-gray-900 text-white text-sm font-semibold px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-colors shrink-0">
+            Quick Add
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd"/>
+            </svg>
+          </Link>
         </div>
       </div>
 

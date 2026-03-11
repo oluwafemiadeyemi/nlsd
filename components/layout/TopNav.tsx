@@ -21,7 +21,6 @@ interface NavItem {
   href: string;
   label: string;
   roles: Array<"employee" | "manager" | "admin" | "finance">;
-  teamHref?: Record<string, string>;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -29,7 +28,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/timesheets", label: "Time Sheet", roles: ["employee", "manager", "admin", "finance"] },
   { href: "/expenses", label: "Expense", roles: ["employee", "manager", "admin", "finance"] },
   { href: "/leave", label: "Leave", roles: ["employee", "manager", "admin", "finance"] },
-  { href: "/approvals", label: "Team", roles: ["manager", "admin", "finance"], teamHref: { manager: "/approvals", admin: "/people", finance: "/approvals" } },
+  { href: "/approvals", label: "Approvals", roles: ["manager", "admin", "finance"] },
+  { href: "/people", label: "Team", roles: ["manager", "admin", "finance"] },
   { href: "/reports", label: "Documents", roles: ["manager", "admin", "finance"] },
 ];
 
@@ -134,15 +134,9 @@ export function TopNav({
   const iconFor = { expense: Receipt, person: Users };
   const visibleNavItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
 
-  function navHref(item: NavItem) {
-    if (item.teamHref && role in item.teamHref) return item.teamHref[role];
-    return item.href;
-  }
-
   function isActive(item: NavItem) {
-    const href = navHref(item);
     if (item.href === "/dashboard") return pathname === "/dashboard";
-    return pathname.startsWith(href) || pathname.startsWith(item.href);
+    return pathname.startsWith(item.href);
   }
 
   const initials = userName.charAt(0).toUpperCase() || "U";
@@ -157,12 +151,11 @@ export function TopNav({
       {/* Nav pills */}
       <nav className="flex items-center gap-1.5 ml-6">
         {visibleNavItems.map((item) => {
-          const href = navHref(item);
           const active = isActive(item);
           return (
             <Link
               key={item.href}
-              href={href}
+              href={item.href}
               className={cn(
                 "px-4 py-1.5 rounded-2xl text-sm font-medium transition-all whitespace-nowrap border",
                 active
